@@ -1,0 +1,29 @@
+<!-- 로그인 5회 실패 계정의 즉시 잠금 해제 메일 템플릿 -->
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>계정 잠금 해제</title>
+  </head>
+  <body style="margin:0;background:#f2f4f3;font-family:Arial,'Noto Sans KR',sans-serif;color:#202321;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f2f4f3;padding:40px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border-radius:20px;">
+            <tr>
+              <td style="padding:48px;">
+                <p style="margin:0 0 12px;color:#007f56;font-size:13px;font-weight:700;letter-spacing:2px;">PRODUCT MANAGEMENT</p>
+                <h1 style="margin:0 0 24px;font-size:32px;line-height:1.3;">계정 잠금 해제 안내</h1>
+                <p style="margin:0 0 12px;color:#555b58;font-size:17px;line-height:1.7;">$nickname님, 로그인 비밀번호가 5회 잘못 입력되어 <strong>$username</strong> 계정이 1시간 잠겼습니다.</p>
+                <p style="margin:0 0 32px;color:#555b58;font-size:17px;line-height:1.7;">아래 버튼을 누르면 계정 잠금이 즉시 해제됩니다.</p>
+                <a href="$unlock_url" style="display:inline-block;background:#007f56;color:#ffffff;text-decoration:none;font-size:18px;font-weight:700;padding:16px 28px;border-radius:12px;">계정 잠금 해제</a>
+                <p style="margin:32px 0 0;color:#8a8f8c;font-size:14px;line-height:1.7;">이 링크는 $expire_minutes분 동안 유효합니다. 본인이 요청하지 않았다면 비밀번호를 변경하고 관리자에게 문의해 주세요.</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

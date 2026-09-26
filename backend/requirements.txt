@@ -1,0 +1,7 @@
+# FastAPI 인증 백엔드 실행용 Python 패키지
+fastapi>=0.115,<1
+uvicorn[standard]>=0.32,<1
+sqlalchemy[asyncio]>=2,<3
+asyncpg>=0.30,<1
+pydantic>=2.10,<3
+python-dotenv>=1,<2
