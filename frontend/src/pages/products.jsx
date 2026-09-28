@@ -1,138 +1,130 @@
-// 로그인 후 상품관리 UI 및 비밀번호 변경·회원 탈퇴·로그아웃 기능
+// 고객이 로그인 없이 노출 상품을 검색·카테고리·페이지 단위로 조회하는 페이지
 
 import { useEffect, useState } from 'react'
-import { getCurrentUser } from '../api/auth.js'
-import DeleteAccountModal from '../components/auth/delete-account-modal.jsx'
-import ProductPagination from '../components/products/product-pagination.jsx'
-import ProductSearch from '../components/products/product-search.jsx'
-import ProductTable from '../components/products/product-table.jsx'
+import { getCatalogCategories, getCatalogProducts } from '../api/products.js'
 
-// 계정 메뉴용 잠금·탈퇴·로그아웃 선 아이콘
-function AccountActionIcon({ type }) {
-  if (type === 'password') {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <rect x="5" y="10" width="14" height="10" rx="2" />
-        <path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v2" />
-      </svg>
-    )
-  }
-  if (type === 'delete') {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" />
-      </svg>
-    )
-  }
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M10 5H5v14h5M14 8l4 4-4 4M8 12h10" />
-    </svg>
-  )
-}
 
-// 상품관리 UI 및 로그인 사용자 계정 메뉴 상태 관리
+// 공개 상품 카탈로그 조회와 화면 상태 관리
 function ProductsPage({ onNavigate }) {
-  const [showDeleteAccount, setShowDeleteAccount] = useState(false)
-  const [user, setUser] = useState(() => {
-    try {
-      return JSON.parse(sessionStorage.getItem('currentUser')) || {}
-    } catch {
-      return {}
-    }
-  })
-  const isPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === '1'
-  const [isCheckingSession, setIsCheckingSession] = useState(!isPreview)
+  const [categories, setCategories] = useState([])
+  const [products, setProducts] = useState([])
+  const [keywordInput, setKeywordInput] = useState('')
+  const [keyword, setKeyword] = useState('')
+  const [categoryId, setCategoryId] = useState('')
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState('')
+  const pageSize = 12
 
-  // 상품 화면 진입 시 서버에서 토큰 유효성을 확인하고 만료 세션 차단
   useEffect(() => {
-    if (isPreview) return undefined
+    getCatalogCategories()
+      .then((result) => setCategories(result.categories))
+      .catch((requestError) => setError(requestError.message))
+  }, [])
 
+  useEffect(() => {
     let isMounted = true
-    getCurrentUser()
+    getCatalogProducts({ keyword, categoryId, page, pageSize })
       .then((result) => {
         if (!isMounted) return
-        setUser(result.user)
-        sessionStorage.setItem('currentUser', JSON.stringify(result.user))
+        setProducts(result.items)
+        setTotal(result.total)
+        setError('')
       })
-      .catch(() => {
+      .catch((requestError) => {
         if (!isMounted) return
-        sessionStorage.removeItem('accessToken')
-        sessionStorage.removeItem('currentUser')
-        sessionStorage.setItem('authNotice', '로그인이 만료되었습니다. 다시 로그인해 주세요.')
-        onNavigate('/login', { replace: true })
+        setProducts([])
+        setTotal(0)
+        setError(requestError.message)
       })
       .finally(() => {
-        if (isMounted) setIsCheckingSession(false)
+        if (isMounted) setIsLoading(false)
       })
-
     return () => {
       isMounted = false
     }
-  }, [isPreview, onNavigate])
+  }, [categoryId, keyword, page])
 
-  // 브라우저 세션 인증정보 제거 및 로그인 화면 이동
-  const logout = () => {
-    sessionStorage.removeItem('accessToken')
-    sessionStorage.removeItem('currentUser')
-    onNavigate('/login', { replace: true })
-  }
-
-  // 탈퇴 접수 안내 전달 및 현재 세션 종료
-  const finishAccountDeletion = (message) => {
-    sessionStorage.setItem('authNotice', message)
-    logout()
-  }
-
-  if (isCheckingSession) {
-    return (
-      <main className="products-page products-page--loading">
-        <p>로그인 정보를 확인하고 있습니다.</p>
-      </main>
-    )
-  }
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   return (
-    <main className="products-page">
-      <header className="products-header">
-        <div className="products-user">
-          <span className="products-user__avatar" aria-hidden="true">{user.nickname?.charAt(0) || '관'}</span>
-          <p><strong>{user.nickname || '관리자'}</strong>님, 로그인되었습니다.</p>
+    <main className="catalog-page">
+      <header className="catalog-header">
+        <div>
+          <p className="catalog-eyebrow">PRODUCT CATALOG</p>
+          <h1>상품</h1>
         </div>
-        <nav className="account-actions" aria-label="계정 메뉴">
-          <button type="button" onClick={() => onNavigate('/change-password')}>
-            <AccountActionIcon type="password" />
-            <span>비밀번호 변경</span>
-          </button>
-          <button className="account-actions__danger" type="button" onClick={() => setShowDeleteAccount(true)}>
-            <AccountActionIcon type="delete" />
-            <span>회원 탈퇴</span>
-          </button>
-          <button className="account-actions__logout" type="button" onClick={logout}>
-            <AccountActionIcon type="logout" />
-            <span>로그아웃</span>
-          </button>
-        </nav>
       </header>
 
-      <section className="product-content" aria-labelledby="product-list-title">
-        <div className="product-toolbar">
-          <div>
-            <h1 id="product-list-title">상품 목록</h1>
-            <p>상품 정보와 노출 상태를 관리합니다.</p>
-          </div>
-          <ProductSearch />
-        </div>
-        <ProductTable />
-        <ProductPagination />
+      <section className="catalog-hero">
+        <p>관리자가 등록하고 공개한 상품을 확인할 수 있습니다.</p>
+        <form
+          className="catalog-filters"
+          onSubmit={(event) => {
+            event.preventDefault()
+            setIsLoading(true)
+            setPage(1)
+            setKeyword(keywordInput.trim())
+          }}
+        >
+          <input
+            type="search"
+            aria-label="상품 검색"
+            placeholder="상품명 또는 상품코드 검색"
+            value={keywordInput}
+            onChange={(event) => setKeywordInput(event.target.value)}
+          />
+          <select
+            aria-label="카테고리"
+            value={categoryId}
+            onChange={(event) => {
+              setIsLoading(true)
+              setCategoryId(event.target.value)
+              setPage(1)
+            }}
+          >
+            <option value="">전체 카테고리</option>
+            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+          </select>
+          <button type="submit">검색</button>
+        </form>
       </section>
 
-      <DeleteAccountModal
-        key={showDeleteAccount ? 'delete-open' : 'delete-closed'}
-        isOpen={showDeleteAccount}
-        onClose={() => setShowDeleteAccount(false)}
-        onDeleted={finishAccountDeletion}
-      />
+      {error && <p className="catalog-notice catalog-notice--error" role="alert">{error}</p>}
+      {isLoading ? (
+        <p className="catalog-notice">상품을 불러오고 있습니다.</p>
+      ) : (
+        <section className="catalog-grid" aria-label="상품 목록">
+          {products.map((product) => (
+            <button
+              className="catalog-card"
+              key={product.id}
+              type="button"
+              onClick={() => onNavigate(`/products/detail?id=${product.id}`)}
+            >
+              {product.image_url ? (
+                <img src={product.image_url} alt={product.image_description || product.name} />
+              ) : (
+                <span className="catalog-card__placeholder" aria-hidden="true">NO IMAGE</span>
+              )}
+              <span className="catalog-card__category">{product.category}</span>
+              <strong>{product.name}</strong>
+              <span className="catalog-card__code">{product.code}</span>
+              <span className="catalog-card__price">{product.price.toLocaleString('ko-KR')}원</span>
+            </button>
+          ))}
+          {!products.length && !error && <p className="catalog-empty">조건에 맞는 상품이 없습니다.</p>}
+        </section>
+      )}
+
+      {totalPages > 1 && (
+        <nav className="catalog-pagination" aria-label="상품 페이지">
+          <button type="button" disabled={page <= 1} onClick={() => { setIsLoading(true); setPage((current) => current - 1) }}>이전</button>
+          <span>{page} / {totalPages}</span>
+          <button type="button" disabled={page >= totalPages} onClick={() => { setIsLoading(true); setPage((current) => current + 1) }}>다음</button>
+        </nav>
+      )}
     </main>
   )
 }

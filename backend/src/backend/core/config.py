@@ -37,6 +37,9 @@ class Settings:
     smtp_from_email: str = os.getenv("SMTP_FROM_EMAIL", "")  # 발신 허용 이메일
     smtp_from_name: str = os.getenv("SMTP_FROM_NAME", "Product Management")  # 메일 발신자 표시명
     smtp_use_tls: bool = _as_bool(os.getenv("SMTP_USE_TLS"), True)  # 465가 아닌 포트의 STARTTLS 여부
+    supabase_url: str = os.getenv("SUPABASE_URL", "")  # Storage REST API 프로젝트 주소
+    supabase_service_role_key: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")  # 서버 전용 Storage 관리 키
+    supabase_storage_bucket: str = os.getenv("SUPABASE_STORAGE_BUCKET", "product-images")  # 공개 상품 이미지 버킷
 
     # 보안 및 탈퇴 정책에 위험한 환경변수 값 차단
     def __post_init__(self) -> None:

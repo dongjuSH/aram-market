@@ -12,11 +12,30 @@ if str(SOURCE_ROOT) not in sys.path:
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
 
 from backend.core.config import settings
-from backend.core.database import Base, engine
-from backend.domain.users.models.users import User
-from backend.domain.users.routers.users import router as user_router
+from backend.core.database import Base, async_session, engine
+from backend.domain.products.models.products import Product, ProductAuditLog, ProductCategory, ProductRelation
+from backend.domain.admins.models.admins import AdminAccount
+from backend.domain.admins.routers.admins import router as admin_router
+from backend.domain.products.routers.catalog import router as catalog_router
+from backend.domain.products.routers.products import router as admin_product_router
+from backend.domain.products.services.storage import product_storage
+
+
+DEFAULT_PRODUCT_CATEGORIES = (
+    ("food", "식품"),
+    ("fashion", "패션·의류"),
+    ("beauty", "뷰티"),
+    ("digital", "디지털·가전"),
+    ("home", "생활·주방"),
+    ("furniture", "가구·인테리어"),
+    ("sports", "스포츠·레저"),
+    ("kids", "유아·완구"),
+    ("books", "도서·교육"),
+    ("pet", "반려동물"),
+)
 
 
 # 서버 시작 시 누락 테이블 생성 및 종료 시 DB 엔진 정리
@@ -24,16 +43,23 @@ from backend.domain.users.routers.users import router as user_router
 async def lifespan(app: FastAPI):
     _ = app  # FastAPI 생명주기 시그니처 유지용 인자
     async with engine.begin() as conn:
-        # Supabase에 누락된 users 테이블 생성
+        # Supabase에 누락된 관리자 계정·상품 테이블 생성
         await conn.run_sync(Base.metadata.create_all)
+    async with async_session() as session:
+        existing_codes = set((await session.execute(select(ProductCategory.code))).scalars().all())
+        for sort_order, (code, name) in enumerate(DEFAULT_PRODUCT_CATEGORIES, start=1):
+            if code not in existing_codes:
+                session.add(ProductCategory(code=code, name=name, sort_order=sort_order, is_active=True))
+        await session.commit()
+    await product_storage.ensure_bucket()
     yield
     await engine.dispose()
 
 
 # FastAPI 인스턴스 생성
 app = FastAPI(
-    title="로그인, 회원가입 페이지",
-    description="로그인, 회원가입 구현 페이지입니다.",
+    title="상품 관리 관리자 API",
+    description="단일 관리자 상품 관리와 고객용 공개 상품 조회 API입니다.",
     version="1.0.0",
     docs_url="/docs",
     lifespan=lifespan,
@@ -63,4 +89,6 @@ def read_root():
 
 # 라우터 등록
 # 모든 도메인 라우터의 공통 API 접두사
-app.include_router(user_router, prefix="/api")
+app.include_router(admin_router, prefix="/api")
+app.include_router(admin_product_router, prefix="/api")
+app.include_router(catalog_router, prefix="/api")

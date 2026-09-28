@@ -1,9 +1,9 @@
-// 아이디 로그인·계정 찾기 모달·탈퇴 취소 확인 페이지
+// 추후 사용자 페이지에서 재사용할 로그인·계정 찾기·탈퇴 복구 화면
 
 import { useState } from 'react'
-import { cancelWithdrawal, signIn } from '../api/auth.js'
-import AccountRecoveryModal from '../components/auth/account-recovery-modal.jsx'
-import Modal from '../components/common/modal.jsx'
+import { cancelWithdrawal, signIn } from '../../api/user-auth.js'
+import Modal from '../../components/common/modal.jsx'
+import AccountRecoveryModal from './account-recovery-modal.jsx'
 
 // 회원가입·잠금 해제 후 전달된 일회성 안내 조회
 function getInitialNotice() {
@@ -18,7 +18,7 @@ function getInitialNotice() {
 }
 
 // 로그인 입력·계정 찾기 모달·탈퇴 복구 확인 상태 관리
-function LoginPage({ onNavigate }) {
+function UserLoginPage({ onNavigate }) {
   const [form, setForm] = useState({ username: '', password: '' })
   const [modalMessage, setModalMessage] = useState(getInitialNotice)
   const [recoveryMode, setRecoveryMode] = useState(null)
@@ -33,9 +33,9 @@ function LoginPage({ onNavigate }) {
 
   // 로그인 성공 정보 저장 및 상품 조회 화면 이동
   const finishLogin = (result) => {
-    sessionStorage.setItem('accessToken', result.access_token)
-    sessionStorage.setItem('currentUser', JSON.stringify(result.user))
-    onNavigate('/products', { replace: true })
+    sessionStorage.setItem('userAccessToken', result.access_token)
+    sessionStorage.setItem('userCurrentUser', JSON.stringify(result.user))
+    onNavigate('/user', { replace: true })
   }
 
   // 필수값 확인 및 서버 인증 결과 모달 표시
@@ -125,7 +125,7 @@ function LoginPage({ onNavigate }) {
           </div>
 
           <div className="auth-links" aria-label="계정 메뉴">
-            <button type="button" onClick={() => onNavigate('/signup')}>회원 가입</button>
+            <button type="button" onClick={() => onNavigate('/user/signup')}>회원 가입</button>
             <span aria-hidden="true" />
             <button type="button" onClick={() => setRecoveryMode('username')}>아이디 찾기</button>
             <span aria-hidden="true" />
@@ -159,4 +159,4 @@ function LoginPage({ onNavigate }) {
   )
 }
 
-export default LoginPage
+export default UserLoginPage

@@ -1,5 +1,6 @@
 # 비동기 SQLAlchemy 엔진 및 요청별 DB 세션
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -11,6 +12,7 @@ engine = create_async_engine(  # 애플리케이션 공용 비동기 DB 연결 �
     echo=False,
     pool_pre_ping=True,
     pool_recycle=300,
+    connect_args={"server_settings": {"timezone": "Asia/Seoul"}},
 )
 
 async_session = async_sessionmaker(  # 요청별 세션 객체 생성 팩토리
@@ -29,6 +31,8 @@ class Base(DeclarativeBase):
 async def get_db():
     async with async_session() as session:
         try:
+            # Supabase Pooler가 서버 기본값을 초기화해도 요청 트랜잭션은 한국 시간대를 사용
+            await session.execute(text("SET TIME ZONE 'Asia/Seoul'"))
             yield session
         finally:
             await session.close()

@@ -1,4 +1,4 @@
-# 회원가입·로그인·계정 복구·잠금·탈퇴 생명주기 비즈니스 규칙
+# 추후 사용자 회원가입·로그인·계정 복구·잠금·탈퇴 비즈니스 규칙
 
 import logging
 from datetime import datetime, timedelta, timezone
@@ -63,7 +63,7 @@ def as_utc(value: datetime | None) -> datetime | None:
     return value.astimezone(timezone.utc)
 
 
-# 회원가입·로그인·복구·잠금·탈퇴 사용자 서비스
+# 사용자 가입·로그인·복구·잠금·탈퇴 서비스
 class UserService:
     # 요청 범위의 비동기 DB 세션 주입
     def __init__(self, db: AsyncSession = Depends(get_db)):
@@ -153,7 +153,9 @@ class UserService:
 
     # 비밀번호 오류 횟수·잠금 상태·탈퇴 유예 상태 확인 후 로그인
     async def signin(self, request: SignInRequest) -> dict:
-        user = (await self.db.execute(select(User).where(User.username == request.username))).scalar_one_or_none()
+        user = (
+            await self.db.execute(select(User).where(User.username == request.username))
+        ).scalar_one_or_none()
 
         if not user:
             verify_password(request.password, DUMMY_PASSWORD_HASH)
@@ -197,7 +199,7 @@ class UserService:
             remaining_days = max(1, (grace_end.date() - now.date()).days)
             recovery_token = create_token(
                 user.id,
-                "withdrawal_recovery",
+                "user_withdrawal_recovery",
                 10,
                 {"ver": user.auth_version},
             )
@@ -231,7 +233,7 @@ class UserService:
         if user.login_fail_count >= MAX_LOGIN_FAILURES:
             user.locked_until = now + LOCK_DURATION
             await self.db.commit()
-            unlock_token = create_token(user.id, "unlock", settings.unlock_token_expire_minutes)
+            unlock_token = create_token(user.id, "user_unlock", settings.unlock_token_expire_minutes)
             try:
                 email_sent = await send_account_unlock_email(user, unlock_token)
             except Exception:
@@ -249,7 +251,7 @@ class UserService:
     def _login_response(self, user: User) -> dict:
         access_token = create_token(
             user.id,
-            "access",
+            "user_access",
             settings.access_token_expire_minutes,
             {"ver": user.auth_version},
         )
@@ -280,7 +282,12 @@ class UserService:
     # 계정 존재 여부를 숨기고 일치 계정에만 아이디 안내 메일 발송
     async def find_username(self, request: FindUsernameRequest) -> dict:
         user = (
-            await self.db.execute(select(User).where(User.email == request.email, User.status != STATUS_WITHDRAWN))
+            await self.db.execute(
+                select(User).where(
+                    User.email == request.email,
+                    User.status != STATUS_WITHDRAWN,
+                )
+            )
         ).scalar_one_or_none()
         if user:
             try:
@@ -307,7 +314,7 @@ class UserService:
 
         token = create_token(
             user.id,
-            "password_reset",
+            "user_password_reset",
             settings.password_reset_token_expire_minutes,
             {"ver": user.auth_version},
         )
@@ -320,7 +327,7 @@ class UserService:
     # 메일 링크 단기 토큰 확인 및 새 비밀번호 교체
     async def reset_password(self, request: PasswordResetConfirmRequest) -> dict:
         try:
-            payload = decode_token(request.token, "password_reset")
+            payload = decode_token(request.token, "user_password_reset")
         except ValueError as error:
             raise api_error(status.HTTP_400_BAD_REQUEST, "INVALID_RESET_TOKEN", str(error)) from error
 
@@ -342,7 +349,7 @@ class UserService:
     # 잠금 해제 메일 토큰 검증 및 로그인 잠금 초기화
     async def unlock_account(self, token: str) -> None:
         try:
-            payload = decode_token(token, "unlock")
+            payload = decode_token(token, "user_unlock")
         except ValueError as error:
             raise api_error(status.HTTP_400_BAD_REQUEST, "INVALID_UNLOCK_TOKEN", str(error)) from error
 
@@ -395,7 +402,7 @@ class UserService:
     # 탈퇴 유예 로그인에서 발급한 단기 토큰으로 탈퇴 취소
     async def cancel_withdrawal(self, request: CancelWithdrawalRequest) -> dict:
         try:
-            payload = decode_token(request.recovery_token, "withdrawal_recovery")
+            payload = decode_token(request.recovery_token, "user_withdrawal_recovery")
         except ValueError as error:
             raise api_error(status.HTTP_400_BAD_REQUEST, "INVALID_RECOVERY_TOKEN", str(error)) from error
 
@@ -416,11 +423,15 @@ class UserService:
     # 접근 토큰의 서명·용도·인증 버전·계정 상태 검증
     async def _get_user_from_access_token(self, token: str) -> User:
         try:
-            payload = decode_token(token, "access")
+            payload = decode_token(token, "user_access")
         except ValueError as error:
             raise api_error(status.HTTP_401_UNAUTHORIZED, "INVALID_ACCESS_TOKEN", str(error)) from error
 
         user = await self.db.get(User, payload["sub"])
-        if not user or user.status != STATUS_ACTIVE or payload.get("ver") != user.auth_version:
+        if (
+            not user
+            or user.status != STATUS_ACTIVE
+            or payload.get("ver") != user.auth_version
+        ):
             raise api_error(status.HTTP_401_UNAUTHORIZED, "INVALID_ACCESS_TOKEN", "로그인이 만료되었습니다.")
         return user

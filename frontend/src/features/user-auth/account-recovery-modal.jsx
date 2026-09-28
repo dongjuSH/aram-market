@@ -1,8 +1,8 @@
-// 페이지 이동 없는 아이디·비밀번호 찾기 양식
+// 추후 사용자 페이지에서 재사용할 아이디·비밀번호 찾기 양식
 
 import { useState } from 'react'
-import { findUsername, requestPasswordReset } from '../../api/auth.js'
-import Modal from '../common/modal.jsx'
+import { findUsername, requestPasswordReset } from '../../api/user-auth.js'
+import Modal from '../../components/common/modal.jsx'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/ // 서버 요청 전에 확인하는 이메일 형식
 const USERNAME_PATTERN = /^[A-Za-z0-9_]{4,20}$/ // 비밀번호 찾기 아이디 형식

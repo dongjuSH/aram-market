@@ -1,11 +1,11 @@
-// 이메일 링크 단기 토큰 기반 비밀번호 재설정 페이지
+// 추후 사용자 페이지에서 재사용할 이메일 토큰 기반 비밀번호 재설정 화면
 
 import { useState } from 'react'
-import { resetPassword } from '../api/auth.js'
-import Modal from '../components/common/modal.jsx'
+import { resetPassword } from '../../api/user-auth.js'
+import Modal from '../../components/common/modal.jsx'
 
 // 이메일 링크 토큰·새 비밀번호 입력·검증 결과 관리
-function ResetPasswordPage({ onNavigate }) {
+function UserResetPasswordPage({ onNavigate }) {
   const token = new URLSearchParams(window.location.search).get('token') || ''
   const [form, setForm] = useState({ password: '', passwordConfirm: '' })
   const [errors, setErrors] = useState({})
@@ -36,7 +36,7 @@ function ResetPasswordPage({ onNavigate }) {
     try {
       const result = await resetPassword({ token, newPassword: form.password })
       sessionStorage.setItem('authNotice', result.message)
-      onNavigate('/login', { replace: true })
+      onNavigate('/user/login', { replace: true })
     } catch (error) {
       setModalMessage(error.message)
     } finally {
@@ -67,7 +67,7 @@ function ResetPasswordPage({ onNavigate }) {
           <button className="primary-button" type="submit" disabled={isSubmitting || !token}>
             {isSubmitting ? '변경 중...' : '비밀번호 변경'}
           </button>
-          <button className="back-button" type="button" onClick={() => onNavigate('/login')}>로그인 화면으로 돌아가기</button>
+          <button className="back-button" type="button" onClick={() => onNavigate('/user/login')}>로그인 화면으로 돌아가기</button>
         </form>
       </section>
 
@@ -76,4 +76,4 @@ function ResetPasswordPage({ onNavigate }) {
   )
 }
 
-export default ResetPasswordPage
+export default UserResetPasswordPage

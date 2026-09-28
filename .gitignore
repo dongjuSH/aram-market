@@ -9,4 +9,6 @@ __pycache__/
 
 # Environment
 .env
+.env.local
+frontend/.env.local
 backend/.env.example

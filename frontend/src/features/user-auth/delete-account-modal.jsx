@@ -1,8 +1,8 @@
-// 로그인 사용자 비밀번호 확인 및 7일 유예 회원 탈퇴 모달
+// 추후 사용자 페이지에서 재사용할 7일 유예 회원 탈퇴 모달
 
 import { useState } from 'react'
-import { deleteAccount } from '../../api/auth.js'
-import Modal from '../common/modal.jsx'
+import { deleteAccount } from '../../api/user-auth.js'
+import Modal from '../../components/common/modal.jsx'
 
 // 탈퇴 안내·현재 비밀번호 검증 오류·서버 요청 상태 관리
 function DeleteAccountModal({ isOpen, onClose, onDeleted }) {

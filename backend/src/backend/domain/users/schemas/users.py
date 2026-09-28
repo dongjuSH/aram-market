@@ -1,4 +1,4 @@
-# 로그인·회원가입·계정 찾기·비밀번호 변경·탈퇴 API 입력 형식 및 검증 규칙
+# 추후 사용자 로그인·회원가입·계정 찾기·비밀번호 변경·탈퇴 API 입력 형식
 
 import re
 from typing import Literal

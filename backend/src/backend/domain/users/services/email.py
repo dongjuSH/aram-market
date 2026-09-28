@@ -1,4 +1,4 @@
-# SMTP 기반 아이디 안내·계정 잠금 해제·비밀번호 재설정 메일 발송
+# 추후 사용자용 아이디 안내·계정 잠금 해제·비밀번호 재설정 메일 발송
 
 import asyncio
 import smtplib
@@ -64,7 +64,7 @@ async def send_password_reset_email(user: User, token: str) -> bool:
     if not settings.smtp_host or not settings.smtp_from_email:
         return False
 
-    reset_url = f"{settings.frontend_url.rstrip('/')}/reset-password?token={quote(token)}"
+    reset_url = f"{settings.frontend_url.rstrip('/')}/user/reset-password?token={quote(token)}"
     template = Template((TEMPLATE_DIRECTORY / "password_reset.html").read_text(encoding="utf-8"))
     html = template.safe_substitute(
         nickname=escape(user.nickname),
@@ -96,7 +96,7 @@ async def send_username_reminder_email(user: User) -> bool:
     html = template.safe_substitute(
         nickname=escape(user.nickname),
         username=escape(user.username),
-        login_url=escape(f"{settings.frontend_url.rstrip('/')}/login", quote=True),
+        login_url=escape(f"{settings.frontend_url.rstrip('/')}/user/login", quote=True),
     )
 
     message = EmailMessage()
@@ -105,7 +105,7 @@ async def send_username_reminder_email(user: User) -> bool:
     message["To"] = user.email
     message.set_content(
         f"{user.nickname}님의 아이디는 {user.username}입니다.\n"
-        f"로그인: {settings.frontend_url.rstrip('/')}/login"
+        f"로그인: {settings.frontend_url.rstrip('/')}/user/login"
     )
     message.add_alternative(html, subtype="html")
 

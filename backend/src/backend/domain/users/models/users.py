@@ -1,4 +1,4 @@
-# 사용자 인증 정보, 로그인 잠금 및 탈퇴 생명주기를 저장하는 DB 모델
+# 추후 사용자 인증·로그인 잠금·탈퇴 생명주기에 사용할 DB 모델
 
 from datetime import datetime
 
@@ -8,13 +8,18 @@ from sqlalchemy.orm import Mapped, mapped_column
 from backend.core.database import Base
 
 
-# 회원 인증, 약관 동의, 로그인 잠금 및 탈퇴 상태를 보관하는 테이블
+# 사용자 인증, 약관 동의, 로그인 잠금 및 탈퇴 상태를 보관하는 테이블
 class User(Base):
-    # Supabase의 public.users 테이블과 연결
+    # 추후 생성할 public.users 테이블과 연결
     __tablename__ = "users"
 
     # DB에서 허용하는 계정 상태 제한
-    __table_args__ = (CheckConstraint("status IN ('active', 'pending_deletion', 'withdrawn')", name="ck_users_status"),)
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'pending_deletion', 'withdrawn')",
+            name="ck_users_status",
+        ),
+    )
 
     # 가입 순서대로 생성되는 내부 고유번호
     id: Mapped[int] = mapped_column(primary_key=True)

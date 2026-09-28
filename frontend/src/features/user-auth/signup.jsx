@@ -1,8 +1,8 @@
-// 회원정보 입력·약관 동의·형식 및 중복 오류를 제공하는 회원가입 페이지
+// 추후 사용자 페이지에서 재사용할 회원가입 화면
 
 import { useState } from 'react'
-import { signUp } from '../api/auth.js'
-import Modal from '../components/common/modal.jsx'
+import { signUp } from '../../api/user-auth.js'
+import Modal from '../../components/common/modal.jsx'
 
 const INITIAL_FORM = { // 회원가입 폼의 초기값과 약관 기본 미동의 상태
   username: '',
@@ -48,7 +48,7 @@ function validate(form) {
 }
 
 // 회원정보 입력·필드 오류·약관 안내·가입 요청 상태 관리
-function SignupPage({ onNavigate }) {
+function UserSignupPage({ onNavigate }) {
   const [form, setForm] = useState(INITIAL_FORM)
   const [errors, setErrors] = useState({})
   const [modalMessage, setModalMessage] = useState('')
@@ -87,8 +87,8 @@ function SignupPage({ onNavigate }) {
         nickname: form.nickname.trim(),
         email: form.email.trim().toLowerCase(),
       })
-      sessionStorage.setItem('authNotice', '회원가입이 완료되었습니다. 로그인해 주세요.')
-      onNavigate('/login', { replace: true })
+      sessionStorage.setItem('authNotice', '관리자 가입 신청이 완료되었습니다. 기존 관리자의 승인 후 로그인할 수 있습니다.')
+      onNavigate('/user/login', { replace: true })
     } catch (error) {
       const fieldByCode = {
         USERNAME_EXISTS: 'username',
@@ -109,9 +109,9 @@ function SignupPage({ onNavigate }) {
     <main className="auth-page auth-page--signup">
       <section className="auth-panel auth-panel--signup" aria-labelledby="signup-title">
         <header className="auth-header auth-header--compact">
-          <p className="auth-eyebrow">CREATE ACCOUNT</p>
+          <p className="auth-eyebrow">ADMIN REGISTRATION</p>
           <h1 id="signup-title">회원 가입</h1>
-          <p className="auth-description">서비스를 이용할 계정 정보를 입력해 주세요.</p>
+          <p className="auth-description">가입 후 기존 관리자의 승인이 완료되어야 로그인할 수 있습니다.</p>
         </header>
 
         <form className="auth-form auth-form--signup" onSubmit={handleSubmit} noValidate>
@@ -167,9 +167,9 @@ function SignupPage({ onNavigate }) {
 
           <div className="signup-actions">
             <button className="primary-button" type="submit" disabled={isSubmitting}>
-              {isSubmitting ? '가입 중...' : '회원 가입 완료'}
+              {isSubmitting ? '신청 중...' : '관리자 가입 신청'}
             </button>
-            <button className="back-button" type="button" onClick={() => onNavigate('/login')}>로그인 화면으로 돌아가기</button>
+            <button className="back-button" type="button" onClick={() => onNavigate('/user/login')}>로그인 화면으로 돌아가기</button>
           </div>
         </form>
       </section>
@@ -179,4 +179,4 @@ function SignupPage({ onNavigate }) {
   )
 }
 
-export default SignupPage
+export default UserSignupPage

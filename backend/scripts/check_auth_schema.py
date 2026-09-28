@@ -1,4 +1,4 @@
-# 인증 마이그레이션 및 충돌 가능 데이터 확인용 읽기 전용 스크립트
+# 단일 관리자 테이블 구조와 계정 수를 확인하는 읽기 전용 스크립트
 
 import asyncio
 
@@ -7,72 +7,50 @@ from sqlalchemy import text
 from backend.core.database import engine
 
 
-# users 컬럼·중복·제약·인덱스 및 탈퇴 Cron 등록 상태 조회
+EXPECTED_COLUMNS = {
+    "id",
+    "username",
+    "password",
+    "created_at",
+    "is_active",
+    "auth_version",
+}
+
+
+# 관리자 컬럼·제약조건·아이디·계정 수 점검
 async def run() -> None:
     async with engine.connect() as connection:
-        columns = (
-            await connection.execute(
-                text(
-                    "SELECT column_name FROM information_schema.columns "
-                    "WHERE table_schema = 'public' AND table_name = 'users' "
-                    "ORDER BY ordinal_position"
+        columns = set(
+            (
+                await connection.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = 'public' AND table_name = 'admin_accounts'"
+                    )
                 )
-            )
-        ).scalars().all()
-        row_count = (await connection.execute(text("SELECT COUNT(*) FROM users"))).scalar_one()
-        duplicate_emails = (
+            ).scalars().all()
+        )
+        accounts = (
             await connection.execute(
-                text(
-                    "SELECT COUNT(*) FROM ("
-                    "SELECT email FROM users GROUP BY email HAVING COUNT(*) > 1"
-                    ") duplicates"
-                )
+                text("SELECT id, username, is_active FROM public.admin_accounts ORDER BY id")
             )
-        ).scalar_one()
-        duplicate_nicknames = (
-            await connection.execute(
-                text(
-                    "SELECT COUNT(*) FROM ("
-                    "SELECT nickname FROM users WHERE nickname IS NOT NULL "
-                    "GROUP BY nickname HAVING COUNT(*) > 1"
-                    ") duplicates"
-                )
-            )
-        ).scalar_one()
+        ).mappings().all()
         constraints = (
             await connection.execute(
                 text(
                     "SELECT constraint_name FROM information_schema.table_constraints "
-                    "WHERE table_schema = 'public' AND table_name = 'users' "
+                    "WHERE table_schema = 'public' AND table_name = 'admin_accounts' "
                     "ORDER BY constraint_name"
                 )
             )
         ).scalars().all()
-        indexes = (
-            await connection.execute(
-                text(
-                    "SELECT indexname FROM pg_indexes "
-                    "WHERE schemaname = 'public' AND tablename = 'users' "
-                    "ORDER BY indexname"
-                )
-            )
-        ).scalars().all()
-        cron_jobs = (
-            await connection.execute(
-                text(
-                    "SELECT jobname || '|' || schedule || '|active=' || active FROM cron.job "
-                    "WHERE jobname = 'purge-withdrawn-users-midnight-kst'"
-                )
-            )
-        ).scalars().all()
 
-    print("columns=" + ",".join(columns))
-    print(f"row_count={row_count}")
-    print(f"duplicate_email_groups={duplicate_emails}")
-    print(f"duplicate_nickname_groups={duplicate_nicknames}")
+    print("columns=" + ",".join(sorted(columns)))
+    print("columns_match=" + str(columns == EXPECTED_COLUMNS).lower())
+    print(f"account_count={len(accounts)}")
+    for account in accounts:
+        print(f"id={account['id']} username={account['username']} active={account['is_active']}")
     print("constraints=" + ",".join(constraints))
-    print("indexes=" + ",".join(indexes))
-    print("cron_jobs=" + ",".join(cron_jobs))
 
 
 if __name__ == "__main__":
