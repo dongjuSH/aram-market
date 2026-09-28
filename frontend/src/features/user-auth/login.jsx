@@ -1,8 +1,9 @@
-// 추후 사용자 페이지에서 재사용할 로그인·계정 찾기·탈퇴 복구 화면
+// 고객 로그인·계정 찾기·탈퇴 복구 화면
 
 import { useState } from 'react'
 import { cancelWithdrawal, signIn } from '../../api/user-auth.js'
 import Modal from '../../components/common/modal.jsx'
+import CustomerAccountShell from '../../components/user/customer-account-shell.jsx'
 import AccountRecoveryModal from './account-recovery-modal.jsx'
 
 // 회원가입·잠금 해제 후 전달된 일회성 안내 조회
@@ -31,11 +32,11 @@ function UserLoginPage({ onNavigate }) {
     setForm((current) => ({ ...current, [name]: value }))
   }
 
-  // 로그인 성공 정보 저장 및 상품 조회 화면 이동
+  // 로그인 성공 정보 저장 및 메인 상품 화면 이동
   const finishLogin = (result) => {
     sessionStorage.setItem('userAccessToken', result.access_token)
     sessionStorage.setItem('userCurrentUser', JSON.stringify(result.user))
-    onNavigate('/user', { replace: true })
+    onNavigate('/', { replace: true })
   }
 
   // 필수값 확인 및 서버 인증 결과 모달 표시
@@ -86,12 +87,12 @@ function UserLoginPage({ onNavigate }) {
   }
 
   return (
-    <main className="auth-page">
+    <CustomerAccountShell onNavigate={onNavigate} className="customer-account-page--auth">
       <section className="auth-panel auth-panel--login" aria-labelledby="login-title">
         <header className="auth-header">
-          <p className="auth-eyebrow">PRODUCT MANAGEMENT</p>
-          <h1 id="login-title">관리자 로그인</h1>
-          <p className="auth-description">본 시스템은 허가된 사용자만 접근할 수 있습니다.</p>
+          <p className="auth-eyebrow">WELCOME TO ARAM MARKET</p>
+          <h1 id="login-title">로그인</h1>
+          <p className="auth-description">아람 마켓의 좋은 상품과 나의 주문을 편리하게 만나보세요.</p>
         </header>
 
         <form className="auth-form auth-form--login" onSubmit={handleSubmit} noValidate>
@@ -155,7 +156,7 @@ function UserLoginPage({ onNavigate }) {
       />
 
       <AccountRecoveryModal key={recoveryMode || 'closed'} mode={recoveryMode} onClose={() => setRecoveryMode(null)} />
-    </main>
+    </CustomerAccountShell>
   )
 }
 

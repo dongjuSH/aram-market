@@ -5,6 +5,10 @@ import AdminLoginPage from './pages/admin-login.jsx'
 import AdminProductsPage from './pages/admin-products.jsx'
 import ProductDetailPage from './pages/product-detail.jsx'
 import ProductsPage from './pages/products.jsx'
+import UserLoginPage from './features/user-auth/login.jsx'
+import UserMyPage from './features/user-auth/my-page.jsx'
+import UserResetPasswordPage from './features/user-auth/reset-password.jsx'
+import UserSignupPage from './features/user-auth/signup.jsx'
 import {
   ADMIN_BASE_PATH,
   ADMIN_LOGIN_PATH,
@@ -12,13 +16,19 @@ import {
   ADMIN_PRODUCT_EDIT_PATH,
   ADMIN_PRODUCTS_PATH,
   ADMIN_SUPPORTED_PATHS,
-  CUSTOMER_PRODUCT_DETAIL_PATH,
   CUSTOMER_PRODUCTS_PATH,
+  getCustomerProductDetailPath,
+  isCustomerProductDetailPath,
+  USER_LOGIN_PATH,
+  USER_MY_PAGE_PATH,
+  USER_RESET_PASSWORD_PATH,
+  USER_SIGNUP_PATH,
+  USER_SUPPORTED_PATHS,
 } from './config/routes.js'
 
 const SUPPORTED_PATHS = new Set([
   CUSTOMER_PRODUCTS_PATH,
-  CUSTOMER_PRODUCT_DETAIL_PATH,
+  ...USER_SUPPORTED_PATHS,
   ...ADMIN_SUPPORTED_PATHS,
 ])
 const AdminProductFormPage = lazy(() => import('./pages/admin-product-form.jsx'))
@@ -26,11 +36,20 @@ const AdminProductFormPage = lazy(() => import('./pages/admin-product-form.jsx')
 // 지원 경로 정규화 및 관리자 화면의 로그인 토큰 확인
 function getCurrentRoute() {
   const currentPath = window.location.pathname
-  if (currentPath === '/') return CUSTOMER_PRODUCTS_PATH
-  const isDevelopmentPreview = import.meta.env.DEV
-    && new URLSearchParams(window.location.search).get('preview') === '1'
+  if (currentPath === '/products') return CUSTOMER_PRODUCTS_PATH
+  if (currentPath === '/products/detail') {
+    const legacyProductId = Number(new URLSearchParams(window.location.search).get('id'))
+    return Number.isInteger(legacyProductId) && legacyProductId > 0
+      ? getCustomerProductDetailPath(legacyProductId)
+      : CUSTOMER_PRODUCTS_PATH
+  }
+  if (isCustomerProductDetailPath(currentPath)) return currentPath
   const requiresAdmin = currentPath.startsWith(`${ADMIN_BASE_PATH}/`) && currentPath !== ADMIN_LOGIN_PATH
-  if (requiresAdmin && !sessionStorage.getItem('adminAccessToken') && !isDevelopmentPreview) return ADMIN_LOGIN_PATH
+  if (requiresAdmin && !sessionStorage.getItem('adminAccessToken')) return ADMIN_LOGIN_PATH
+  if (currentPath === USER_MY_PAGE_PATH && !sessionStorage.getItem('userAccessToken')) return USER_LOGIN_PATH
+  if ((currentPath === USER_LOGIN_PATH || currentPath === USER_SIGNUP_PATH) && sessionStorage.getItem('userAccessToken')) {
+    return USER_MY_PAGE_PATH
+  }
   return SUPPORTED_PATHS.has(currentPath)
     ? `${currentPath}${window.location.search}`
     : CUSTOMER_PRODUCTS_PATH
@@ -58,8 +77,12 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [])
 
-  if (path === CUSTOMER_PRODUCT_DETAIL_PATH) return <ProductDetailPage key={route} onNavigate={navigate} />
+  if (isCustomerProductDetailPath(path)) return <ProductDetailPage key={route} onNavigate={navigate} />
   if (path === CUSTOMER_PRODUCTS_PATH) return <ProductsPage onNavigate={navigate} />
+  if (path === USER_LOGIN_PATH) return <UserLoginPage onNavigate={navigate} />
+  if (path === USER_SIGNUP_PATH) return <UserSignupPage onNavigate={navigate} />
+  if (path === USER_RESET_PASSWORD_PATH) return <UserResetPasswordPage onNavigate={navigate} />
+  if (path === USER_MY_PAGE_PATH) return <UserMyPage onNavigate={navigate} />
   if (path === ADMIN_PRODUCT_CREATE_PATH || path === ADMIN_PRODUCT_EDIT_PATH) {
     return (
       <Suspense fallback={<main className="products-page products-page--loading"><p>상품 편집기를 불러오고 있습니다.</p></main>}>

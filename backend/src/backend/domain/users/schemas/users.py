@@ -1,4 +1,4 @@
-# 추후 사용자 로그인·회원가입·계정 찾기·비밀번호 변경·탈퇴 API 입력 형식
+# 고객 로그인·회원가입·계정 찾기·비밀번호 변경·탈퇴 API 입력 형식
 
 import re
 from typing import Literal
@@ -48,6 +48,7 @@ class SignUpRequest(BaseModel):
     email: str = Field(min_length=3, max_length=254)  # 중복 불가 복구 이메일
     service_policy: bool  # 필수 이용약관 동의
     privacy_policy: bool  # 필수 개인정보 동의
+    marketing_consent: bool = False  # 선택 마케팅 정보 수신 동의
 
     _normalize_username = field_validator("username")(normalize_username)
     _validate_password = field_validator("password")(validate_password)
@@ -113,6 +114,11 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(min_length=8, max_length=64)  # 교체할 새 비밀번호
 
     _validate_password = field_validator("new_password")(validate_password)
+
+
+# 마이 페이지의 선택 마케팅 수신 동의 변경값
+class MarketingConsentRequest(BaseModel):
+    marketing_consent: bool
 
 
 # 회원 탈퇴용 현재 비밀번호 및 확인 문구 검증

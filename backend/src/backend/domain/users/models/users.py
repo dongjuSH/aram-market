@@ -1,4 +1,4 @@
-# 추후 사용자 인증·로그인 잠금·탈퇴 생명주기에 사용할 DB 모델
+# 고객 인증·로그인 잠금·탈퇴 생명주기 DB 모델
 
 from datetime import datetime
 
@@ -10,7 +10,7 @@ from backend.core.database import Base
 
 # 사용자 인증, 약관 동의, 로그인 잠금 및 탈퇴 상태를 보관하는 테이블
 class User(Base):
-    # 추후 생성할 public.users 테이블과 연결
+    # public.users 테이블과 연결
     __tablename__ = "users"
 
     # DB에서 허용하는 계정 상태 제한
@@ -62,3 +62,6 @@ class User(Base):
 
     # 개인정보 수집 필수 동의
     privacy_policy: Mapped[bool] = mapped_column(default=False)
+
+    # 상품·혜택 이메일 수신에 대한 선택 동의
+    marketing_consent: Mapped[bool] = mapped_column(default=False, nullable=False)

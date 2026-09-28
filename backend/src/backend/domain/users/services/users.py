@@ -1,10 +1,10 @@
-# 추후 사용자 회원가입·로그인·계정 복구·잠금·탈퇴 비즈니스 규칙
+# 고객 회원가입·로그인·계정 복구·잠금·탈퇴 비즈니스 규칙
 
 import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, HTTPException, status
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +17,7 @@ from backend.domain.users.schemas.users import (
     ChangePasswordRequest,
     DeleteAccountRequest,
     FindUsernameRequest,
+    MarketingConsentRequest,
     PasswordResetConfirmRequest,
     PasswordResetEmailRequest,
     SignInRequest,
@@ -69,6 +70,27 @@ class UserService:
     def __init__(self, db: AsyncSession = Depends(get_db)):
         self.db = db
 
+    # 탈퇴 유예기간과 추가 보관기간이 모두 끝난 계정을 실제 DB에서 삭제
+    async def purge_expired_accounts(self, now: datetime | None = None) -> int:
+        purge_before = (now or datetime.now(timezone.utc)) - timedelta(
+            days=settings.withdrawal_grace_days + settings.withdrawal_retention_days
+        )
+        deleted_ids = (
+            await self.db.execute(
+                delete(User)
+                .where(
+                    User.status.in_((STATUS_PENDING_DELETION, STATUS_WITHDRAWN)),
+                    User.withdrawn_at.is_not(None),
+                    User.withdrawn_at <= purge_before,
+                )
+                .returning(User.id)
+            )
+        ).scalars().all()
+        await self.db.commit()
+        if deleted_ids:
+            logger.info("expired user accounts purged count=%s", len(deleted_ids))
+        return len(deleted_ids)
+
     # 아이디·닉네임·이메일 중복 확인 후 신규 계정 생성
     async def signup(self, request: SignUpRequest) -> dict:
         query = select(User).where(
@@ -95,6 +117,7 @@ class UserService:
             email=request.email,
             service_policy=request.service_policy,
             privacy_policy=request.privacy_policy,
+            marketing_consent=request.marketing_consent,
             status=STATUS_ACTIVE,
             auth_version=0,
         )
@@ -264,6 +287,7 @@ class UserService:
                 "username": user.username,
                 "nickname": user.nickname,
                 "email": user.email,
+                "marketing_consent": user.marketing_consent,
             },
         }
 
@@ -276,7 +300,24 @@ class UserService:
                 "username": user.username,
                 "nickname": user.nickname,
                 "email": user.email,
+                "marketing_consent": user.marketing_consent,
             }
+        }
+
+    # 마이 페이지에서 선택 마케팅 수신 동의 상태 변경
+    async def update_marketing_consent(self, token: str, request: MarketingConsentRequest) -> dict:
+        user = await self._get_user_from_access_token(token)
+        user.marketing_consent = request.marketing_consent
+        await self.db.commit()
+        return {
+            "message": "마케팅 수신 동의 상태가 변경되었습니다.",
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "nickname": user.nickname,
+                "email": user.email,
+                "marketing_consent": user.marketing_consent,
+            },
         }
 
     # 계정 존재 여부를 숨기고 일치 계정에만 아이디 안내 메일 발송
@@ -337,6 +378,13 @@ class UserService:
                 status.HTTP_400_BAD_REQUEST,
                 "INVALID_RESET_TOKEN",
                 "유효하지 않거나 이미 사용된 재설정 링크입니다.",
+            )
+
+        if verify_password(request.new_password, user.password_hash):
+            raise api_error(
+                status.HTTP_400_BAD_REQUEST,
+                "PASSWORD_UNCHANGED",
+                "새 비밀번호는 현재 비밀번호와 다르게 입력해 주세요.",
             )
 
         user.password_hash = hash_password(request.new_password)

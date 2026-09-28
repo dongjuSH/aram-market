@@ -1,4 +1,4 @@
-# 추후 사용자 가입·인증·계정 복구·비밀번호 변경·탈퇴 HTTP 엔드포인트
+# 고객 가입·인증·계정 복구·비밀번호 변경·탈퇴 HTTP 엔드포인트
 
 from urllib.parse import urlencode
 
@@ -12,6 +12,7 @@ from backend.domain.users.schemas.users import (
     ChangePasswordRequest,
     DeleteAccountRequest,
     FindUsernameRequest,
+    MarketingConsentRequest,
     PasswordResetConfirmRequest,
     PasswordResetEmailRequest,
     SignInRequest,
@@ -19,7 +20,7 @@ from backend.domain.users.schemas.users import (
 )
 from backend.domain.users.services.users import UserService, api_error
 
-# 사용자 계정 리소스 경로 전용 라우터이며 구현 시 공통 /api 접두사 적용
+# 사용자 계정 리소스 경로 전용 라우터이며 공통 /api 접두사 적용
 router = APIRouter(prefix="/users", tags=["users"])
 bearer_scheme = HTTPBearer(auto_error=False)  # 인증 API의 Bearer 토큰 직접 검증용 자동 오류 비활성화
 
@@ -107,6 +108,16 @@ async def change_password(
     user_service: UserService = Depends(UserService),
 ):
     return await user_service.change_password(token, request)
+
+
+# 로그인 사용자의 선택 마케팅 수신 동의 저장
+@router.put("/me/marketing-consent", status_code=status.HTTP_200_OK)
+async def update_marketing_consent(
+    request: MarketingConsentRequest,
+    token: str = Depends(access_token),
+    user_service: UserService = Depends(UserService),
+):
+    return await user_service.update_marketing_consent(token, request)
 
 
 # 7일 유예기간 내 탈퇴 취소 및 로그인 상태 복구

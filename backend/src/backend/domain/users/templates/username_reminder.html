@@ -4,22 +4,59 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>아이디 안내</title>
+    <title>아람 마켓 아이디 안내</title>
+    <style>
+      @media only screen and (max-width: 640px) {
+        .email-wrap { padding: 18px 10px !important; }
+        .email-header, .email-content, .email-footer { padding-left: 22px !important; padding-right: 22px !important; }
+        .email-title { font-size: 27px !important; }
+        .email-button { display: block !important; text-align: center !important; }
+      }
+    </style>
   </head>
-  <body style="margin:0;background:#f2f4f3;font-family:Arial,'Noto Sans KR',sans-serif;color:#202321;">
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f2f4f3;padding:40px 16px;">
-      <tr><td align="center">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#fff;border-radius:20px;">
-          <tr><td style="padding:48px;">
-            <p style="margin:0 0 12px;color:#007f56;font-size:13px;font-weight:700;letter-spacing:2px;">PRODUCT MANAGEMENT</p>
-            <h1 style="margin:0 0 24px;font-size:32px;line-height:1.3;">아이디 안내</h1>
-            <p style="margin:0 0 12px;color:#555b58;font-size:17px;line-height:1.7;">$nickname님의 가입 아이디는 다음과 같습니다.</p>
-            <p style="margin:0 0 32px;color:#202321;font-size:24px;font-weight:700;line-height:1.5;">$username</p>
-            <a href="$login_url" style="display:inline-block;background:#007f56;color:#fff;text-decoration:none;font-size:18px;font-weight:700;padding:16px 28px;border-radius:12px;">로그인 화면으로 이동</a>
-            <p style="margin:32px 0 0;color:#8a8f8c;font-size:14px;line-height:1.7;">본인이 요청하지 않았다면 이 메일을 무시해 주세요.</p>
-          </td></tr>
-        </table>
-      </td></tr>
+  <body style="margin:0;background:#eef5f2;font-family:Arial,'Noto Sans KR',sans-serif;color:#1f2924;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#eef5f2;">
+      <tr>
+        <td class="email-wrap" align="center" style="padding:36px 16px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border:1px solid #dceae4;border-radius:24px;overflow:hidden;">
+            <tr>
+              <td class="email-header" style="padding:24px 34px;border-bottom:1px solid #e3eee9;">
+                <table role="presentation" cellspacing="0" cellpadding="0">
+                  <tr>
+                    <td width="48" height="48" align="center" valign="middle" style="width:48px;height:48px;background:#00734a;border-radius:14px;color:#ffffff;font-size:22px;font-weight:800;">아</td>
+                    <td style="padding-left:13px;">
+                      <p style="margin:0;color:#17231e;font-size:21px;font-weight:800;line-height:1.2;">아람 마켓</p>
+                      <p style="margin:4px 0 0;color:#2a9760;font-size:11px;font-weight:700;letter-spacing:1.5px;">ARAM MARKET</p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td class="email-content" style="padding:44px 34px 46px;">
+                <p style="margin:0 0 12px;color:#2a9760;font-size:12px;font-weight:800;letter-spacing:1.7px;">ACCOUNT GUIDE</p>
+                <h1 class="email-title" style="margin:0 0 22px;color:#17231e;font-size:32px;line-height:1.35;">가입 아이디를 안내드립니다</h1>
+                <p style="margin:0 0 18px;color:#53605a;font-size:16px;line-height:1.75;">$nickname님이 아람 마켓에 가입한 아이디는 다음과 같습니다.</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 26px;background:#f4f8f6;border:1px solid #dceae4;border-radius:14px;">
+                  <tr>
+                    <td align="center" style="padding:22px;color:#00734a;font-size:24px;font-weight:800;letter-spacing:.5px;">$username</td>
+                  </tr>
+                </table>
+                <a class="email-button" href="$login_url" style="display:inline-block;background:#00734a;color:#ffffff;text-decoration:none;font-size:16px;font-weight:800;line-height:1;padding:16px 24px;border-radius:12px;">로그인 화면으로 이동</a>
+                <p style="margin:28px 0 0;color:#75807b;font-size:13px;line-height:1.7;">본인이 요청하지 않았다면 이 메일을 무시해 주세요.</p>
+              </td>
+            </tr>
+            <tr>
+              <td class="email-footer" style="padding:24px 34px;background:#191d1b;color:#aab2ae;font-size:12px;line-height:1.75;">
+                <strong style="color:#ffffff;">재단법인 아람마켓 한국</strong><br />
+                연락처 02-1234-5678&nbsp;&nbsp;|&nbsp;&nbsp;이메일 info@arammarket.kr<br />
+                서울특별시 마포구 아람로 12, 5층<br />
+                <span style="color:#747d78;">Copyright © 2026 Aram Market Korea. All rights reserved.</span>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
     </table>
   </body>
 </html>

@@ -18,8 +18,7 @@ function AdminProductsPage({ onNavigate }) {
       return {}
     }
   })
-  const isPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === '1'
-  const [isCheckingSession, setIsCheckingSession] = useState(!isPreview)
+  const [isCheckingSession, setIsCheckingSession] = useState(true)
   const [products, setProducts] = useState([])
   const [keywordInput, setKeywordInput] = useState('')
   const [keyword, setKeyword] = useState('')
@@ -28,15 +27,13 @@ function AdminProductsPage({ onNavigate }) {
   const [productStatus, setProductStatus] = useState('active')
   const [requestVersion, setRequestVersion] = useState(0)
   const [total, setTotal] = useState(0)
-  const [isLoading, setIsLoading] = useState(!isPreview)
+  const [isLoading, setIsLoading] = useState(true)
   const [restoringId, setRestoringId] = useState(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
   // 상품 화면 진입 시 서버에서 토큰 유효성을 확인하고 만료 세션 차단
   useEffect(() => {
-    if (isPreview) return undefined
-
     let isMounted = true
     getCurrentUser()
       .then((result) => {
@@ -58,11 +55,11 @@ function AdminProductsPage({ onNavigate }) {
     return () => {
       isMounted = false
     }
-  }, [isPreview, onNavigate])
+  }, [onNavigate])
 
   // 검색 조건 또는 페이지 변경 시 현재 사용자의 상품 조회
   useEffect(() => {
-    if (isCheckingSession || isPreview) return undefined
+    if (isCheckingSession) return undefined
     let isMounted = true
     getProducts({ keyword, page, pageSize, status: productStatus })
       .then((result) => {
@@ -89,7 +86,7 @@ function AdminProductsPage({ onNavigate }) {
     return () => {
       isMounted = false
     }
-  }, [isCheckingSession, isPreview, keyword, page, pageSize, productStatus, requestVersion, onNavigate])
+  }, [isCheckingSession, keyword, page, pageSize, productStatus, requestVersion, onNavigate])
 
   const search = (event) => {
     event.preventDefault()

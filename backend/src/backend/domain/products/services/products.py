@@ -122,7 +122,7 @@ class ProductService:
         normalized_keyword = keyword.strip()
         if normalized_keyword:
             pattern = f"%{normalized_keyword}%"
-            filters.append(or_(Product.name.ilike(pattern), Product.code.ilike(pattern)))
+            filters.append(Product.name.ilike(pattern))
 
         base_query = select(Product).join(ProductCategory, Product.category_id == ProductCategory.id).where(*filters)
         total = (await self.db.execute(select(func.count()).select_from(base_query.subquery()))).scalar_one()
@@ -722,7 +722,6 @@ class ProductService:
             "id": product.id,
             "category": category_name,
             "name": product.name,
-            "code": product.code,
             "price": product.price,
             "image_url": product_storage.public_url(product.image_path),
             "image_description": product.image_description or "",

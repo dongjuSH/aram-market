@@ -1,4 +1,4 @@
-// 추후 사용자 페이지에서 재사용할 아이디·비밀번호 찾기 양식
+// 고객 아이디·비밀번호 찾기 양식
 
 import { useState } from 'react'
 import { findUsername, requestPasswordReset } from '../../api/user-auth.js'

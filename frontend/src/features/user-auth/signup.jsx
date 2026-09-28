@@ -1,8 +1,9 @@
-// 추후 사용자 페이지에서 재사용할 회원가입 화면
+// 고객 회원가입 화면
 
 import { useState } from 'react'
 import { signUp } from '../../api/user-auth.js'
 import Modal from '../../components/common/modal.jsx'
+import CustomerAccountShell from '../../components/user/customer-account-shell.jsx'
 
 const INITIAL_FORM = { // 회원가입 폼의 초기값과 약관 기본 미동의 상태
   username: '',
@@ -11,15 +12,17 @@ const INITIAL_FORM = { // 회원가입 폼의 초기값과 약관 기본 미동�
   email: '',
   service_policy: false,
   privacy_policy: false,
+  marketing_consent: false,
 }
 
 const USERNAME_PATTERN = /^[A-Za-z0-9_]{4,20}$/ // 서버와 동일한 아이디 형식
 const NICKNAME_PATTERN = /^[A-Za-z0-9_가-힣]{2,10}$/ // 서버와 동일한 닉네임 형식
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/ // 기본 이메일 형식
 
-const POLICY_CONTENT = { // 약관 보기 모달에 표시하는 테스트 서비스 안내문
+const POLICY_CONTENT = { // 약관 보기 모달에 표시하는 서비스 안내문
   service_policy: '서비스 이용약관\n\n본 약관은 서비스 이용 조건과 회원의 권리·의무를 정합니다. 회원은 정확한 정보를 제공하고 계정 정보를 안전하게 관리해야 하며, 서비스 운영을 방해하거나 타인의 권리를 침해해서는 안 됩니다. 약관 위반 시 이용이 제한될 수 있습니다.',
-  privacy_policy: '개인정보 수집 및 이용 동의\n\n수집 항목: 아이디, 닉네임, 이메일, 비밀번호 해시\n이용 목적: 회원 식별, 계정 관리, 로그인 보안 및 계정 잠금 해제\n보유 기간: 회원 탈퇴 요청 후 7일간 복구를 위해 보관하며, 유예기간 종료 후 다음 한국시간 자정에 삭제합니다. 이 테스트 서비스는 거래·결제 정보를 수집하지 않습니다.',
+  privacy_policy: '개인정보 수집 및 이용 동의\n\n수집 항목: 아이디, 닉네임, 이메일, 비밀번호 해시\n이용 목적: 회원 식별, 계정 관리, 로그인 보안 및 계정 잠금 해제\n보유 기간: 회원 탈퇴 요청 후 7일간 복구를 위해 보관하며, 유예기간 종료 후 정리 작업을 통해 삭제합니다.',
+  marketing_consent: '마케팅 정보 수신 동의\n\n수신 항목: 신상품, 혜택 및 이벤트 안내\n수신 방법: 이메일\n보유 기간: 동의 철회 또는 회원 탈퇴 시까지\n선택 동의 항목으로, 동의하지 않아도 회원 가입과 기본 서비스 이용이 가능합니다.',
 }
 
 // 서버 규칙과 동일한 형식의 전체 필드 오류 계산
@@ -68,6 +71,7 @@ function UserSignupPage({ onNavigate }) {
       ...current,
       service_policy: checked,
       privacy_policy: checked,
+      marketing_consent: checked,
     }))
     setErrors((current) => ({ ...current, service_policy: '', privacy_policy: '' }))
   }
@@ -87,7 +91,7 @@ function UserSignupPage({ onNavigate }) {
         nickname: form.nickname.trim(),
         email: form.email.trim().toLowerCase(),
       })
-      sessionStorage.setItem('authNotice', '관리자 가입 신청이 완료되었습니다. 기존 관리자의 승인 후 로그인할 수 있습니다.')
+      sessionStorage.setItem('authNotice', '회원 가입이 완료되었습니다. 가입한 계정으로 로그인해 주세요.')
       onNavigate('/user/login', { replace: true })
     } catch (error) {
       const fieldByCode = {
@@ -103,15 +107,15 @@ function UserSignupPage({ onNavigate }) {
     }
   }
 
-  const allPoliciesChecked = form.service_policy && form.privacy_policy
+  const allPoliciesChecked = form.service_policy && form.privacy_policy && form.marketing_consent
 
   return (
-    <main className="auth-page auth-page--signup">
+    <CustomerAccountShell onNavigate={onNavigate} className="customer-account-page--auth customer-account-page--signup">
       <section className="auth-panel auth-panel--signup" aria-labelledby="signup-title">
         <header className="auth-header auth-header--compact">
-          <p className="auth-eyebrow">ADMIN REGISTRATION</p>
+          <p className="auth-eyebrow">JOIN ARAM MARKET</p>
           <h1 id="signup-title">회원 가입</h1>
-          <p className="auth-description">가입 후 기존 관리자의 승인이 완료되어야 로그인할 수 있습니다.</p>
+          <p className="auth-description">필수 정보를 입력하고 아람 마켓의 회원 서비스를 시작해 보세요.</p>
         </header>
 
         <form className="auth-form auth-form--signup" onSubmit={handleSubmit} noValidate>
@@ -160,6 +164,13 @@ function UserSignupPage({ onNavigate }) {
                 </label>
                 <button type="button" className="policy-view" onClick={() => setModalMessage(POLICY_CONTENT.privacy_policy)}>보기</button>
               </div>
+              <div className="policy-item">
+                <label>
+                  <input name="marketing_consent" type="checkbox" checked={form.marketing_consent} onChange={updateField} />
+                  <span>[선택] 마케팅 정보 수신 동의</span>
+                </label>
+                <button type="button" className="policy-view" onClick={() => setModalMessage(POLICY_CONTENT.marketing_consent)}>보기</button>
+              </div>
             </div>
             <p className="field-error" role="alert">{errors.service_policy}</p>
             <p className="field-error" role="alert">{errors.privacy_policy}</p>
@@ -167,15 +178,20 @@ function UserSignupPage({ onNavigate }) {
 
           <div className="signup-actions">
             <button className="primary-button" type="submit" disabled={isSubmitting}>
-              {isSubmitting ? '신청 중...' : '관리자 가입 신청'}
+              {isSubmitting ? '가입 중...' : '회원 가입'}
             </button>
             <button className="back-button" type="button" onClick={() => onNavigate('/user/login')}>로그인 화면으로 돌아가기</button>
           </div>
         </form>
       </section>
 
-      <Modal isOpen={Boolean(modalMessage)} message={modalMessage} onClose={() => setModalMessage('')} />
-    </main>
+      <Modal
+        isOpen={Boolean(modalMessage)}
+        message={modalMessage}
+        messageClassName="modal-message--policy"
+        onClose={() => setModalMessage('')}
+      />
+    </CustomerAccountShell>
   )
 }
 

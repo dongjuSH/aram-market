@@ -1,4 +1,4 @@
-// 추후 사용자 페이지에서 재사용할 7일 유예 회원 탈퇴 모달
+// 7일 유예 고객 회원 탈퇴 모달
 
 import { useState } from 'react'
 import { deleteAccount } from '../../api/user-auth.js'

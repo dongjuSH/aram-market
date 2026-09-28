@@ -35,7 +35,7 @@ class Settings:
     smtp_username: str = os.getenv("SMTP_USERNAME", "")  # SMTP 인증 계정
     smtp_password: str = os.getenv("SMTP_PASSWORD", "")  # SMTP 앱 비밀번호
     smtp_from_email: str = os.getenv("SMTP_FROM_EMAIL", "")  # 발신 허용 이메일
-    smtp_from_name: str = os.getenv("SMTP_FROM_NAME", "Product Management")  # 메일 발신자 표시명
+    smtp_from_name: str = os.getenv("SMTP_FROM_NAME", "아람 마켓")  # 메일에 표시할 아람 마켓 발신자명
     smtp_use_tls: bool = _as_bool(os.getenv("SMTP_USE_TLS"), True)  # 465가 아닌 포트의 STARTTLS 여부
     supabase_url: str = os.getenv("SUPABASE_URL", "")  # Storage REST API 프로젝트 주소
     supabase_service_role_key: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")  # 서버 전용 Storage 관리 키

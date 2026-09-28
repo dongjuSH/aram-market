@@ -1,4 +1,4 @@
-# 추후 사용자용 아이디 안내·계정 잠금 해제·비밀번호 재설정 메일 발송
+# 고객용 아이디 안내·계정 잠금 해제·비밀번호 재설정 메일 발송
 
 import asyncio
 import smtplib
@@ -45,7 +45,7 @@ async def send_account_unlock_email(user: User, token: str) -> bool:
     )
 
     message = EmailMessage()
-    message["Subject"] = "[Product Management] 계정 잠금 해제 안내"
+    message["Subject"] = "[아람 마켓] 계정 잠금 해제 안내"
     message["From"] = formataddr((settings.smtp_from_name, settings.smtp_from_email))
     message["To"] = user.email
     message.set_content(
@@ -74,7 +74,7 @@ async def send_password_reset_email(user: User, token: str) -> bool:
     )
 
     message = EmailMessage()
-    message["Subject"] = "[Product Management] 비밀번호 재설정 안내"
+    message["Subject"] = "[아람 마켓] 비밀번호 재설정 안내"
     message["From"] = formataddr((settings.smtp_from_name, settings.smtp_from_email))
     message["To"] = user.email
     message.set_content(
@@ -100,7 +100,7 @@ async def send_username_reminder_email(user: User) -> bool:
     )
 
     message = EmailMessage()
-    message["Subject"] = "[Product Management] 아이디 안내"
+    message["Subject"] = "[아람 마켓] 아이디 안내"
     message["From"] = formataddr((settings.smtp_from_name, settings.smtp_from_email))
     message["To"] = user.email
     message.set_content(

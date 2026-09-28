@@ -1,28 +1,82 @@
 # Product Management 개발 인수인계
 
-## 프로젝트 목적
+## 이 문서의 목적
 
-React 고객용 상품 카탈로그와 단일 관리자 상품 관리 화면을 FastAPI 및 Supabase PostgreSQL에 연결한 학습용 프로젝트다. 고객은 로그인 없이 공개 상품을 조회하고 관리자는 고정 아이디 `admin`으로 상품을 관리한다.
+이 문서는 Claude Code가 현재 작업을 바로 이어가기 위한 기준 문서다. 작업을 시작할 때 전체를 먼저 읽고, 실제 코드와 충돌하면 추측하지 말고 코드·DB 읽기 결과를 기준으로 이 문서를 함께 갱신한다.
 
-## 코드 작성 규칙
+사용자는 React와 FastAPI의 동작을 직접 이해하면서 구현하는 것이 목표다. 요청하지 않은 전체 코드 생성이나 대규모 구조 변경은 피하고, 기존 코드 기준으로 원인과 개념을 먼저 설명한 뒤 필요한 범위만 수정한다. 새로운 폴더·계층·라이브러리는 실제 필요가 생겼을 때 먼저 제안한다.
 
-- 파일 첫 줄에 해당 파일 역할을 한 줄 주석으로 작성한다.
-- 함수와 클래스 설명은 내부 docstring 대신 선언 바로 위 `#` 주석으로 작성한다.
-- 주석은 존댓말 문장 대신 `~검증`, `~처리`, `~모델` 형태의 명사형을 사용한다.
-- 실제 비밀번호, 환경변수 값, DB 비밀번호, SMTP 앱 비밀번호, 토큰 서명키, 관리자 비공개 URL은 소스와 문서에 기록하지 않는다.
-- 프로젝트 설명용 Markdown은 루트 `CLAUDE.md` 하나만 사용한다.
+## 현재 기준 상태
 
-## 사용자와 관리자 분리
+2026-09-29 기준 구현 범위:
 
-- 고객 화면은 `/products`와 `/products/detail`만 사용하며 관리자 화면 링크를 노출하지 않는다.
-- 관리자 화면 경로는 Git 제외 대상인 `frontend/.env.local`의 `VITE_ADMIN_BASE_PATH`로 정한다.
-- 관리자 로그인·상품 화면은 모두 위 비공개 기본 경로 아래에 있다.
-- 관리자 상품 목록과 등록·수정 화면의 헤더에는 고객용 `/products`를 새 창으로 여는 `사이트로 바로가기` 버튼을 제공한다.
-- 관리자 로그인 화면과 인증 UX는 배포 단계 보안 전환 전까지 현재 기능으로 고정한다.
-- URL을 숨기는 것은 탐색 방지 수단일 뿐 보안 경계가 아니다. 실제 권한은 모든 `/api/admin/products` 요청에서 `admin_access` 토큰을 검증해 통제한다.
-- 관리자 토큰은 `admin_access`, 향후 사용자 토큰은 `user_access` 용도로 서명한다. 두 토큰은 서로 대신 사용할 수 없다.
-- 기존 회원가입·아이디 찾기·비밀번호 재설정·잠금 해제·탈퇴 소스는 `backend/src/backend/domain/users`, `frontend/src/features/user-auth`, `frontend/src/api/user-auth.js`에 보관한다.
-- 사용자 인증 라우터와 화면은 현재 앱에 등록하지 않으며 `users` 테이블도 현재 서버에서 생성하지 않는다. 사용자 페이지 설계 시 별도 마이그레이션과 라우팅으로 연결한다.
+- 고객용 아람 마켓 상품 목록과 상품 상세 페이지
+- 고객 회원가입, 로그인, 아이디 찾기, 비밀번호 재설정, 마이페이지
+- 고객 비밀번호 변경, 마케팅 수신 동의 변경, 7일 유예 회원 탈퇴·복구
+- 고정 아이디 `admin` 한 개만 사용하는 관리자 로그인
+- 관리자 상품 목록·검색·등록·수정·소프트 삭제·복원
+- Supabase PostgreSQL 및 Supabase Storage 연결
+- 상품 변경 감사 로그와 이미지 임시 업로드 정리
+
+실제 Supabase 상태:
+
+- `admin_accounts`: 활성 `admin` 계정 1건
+- `users`: 4건, `marketing_consent` 컬럼 적용 완료
+- `products`: 총 30건(활성 29건, 삭제 1건)이며 소프트 삭제 상품도 보존
+- 상품 대표·상세 이미지는 모두 새 Storage 경로로 이전 완료
+- `products.image_data`, 상품 관리자 ID, 감사 로그 관리자 ID 같은 중복 컬럼 제거 완료
+
+자동 검증 기준:
+
+- 백엔드 단위 테스트 31개 통과
+- Python `compileall` 통과
+- 프런트 `oxlint` 통과
+- Vite 프로덕션 빌드 통과
+
+## 작업 원칙
+
+- 파일명은 kebab-case, React 컴포넌트 함수명은 PascalCase를 사용한다. Vite 기본 `App.jsx`, `main.jsx`는 유지한다.
+- 파일 첫 줄에는 역할을 설명하는 한 줄 주석을 둔다.
+- 함수·클래스 설명은 선언 바로 위의 짧은 `#` 주석으로 작성한다.
+- 사용자가 만든 변경을 임의로 되돌리거나 구조를 크게 바꾸지 않는다.
+- 진단 요청은 원인과 근거만 제시하고, 수정 요청이 있을 때 구현한다.
+- DB 스키마 변경은 SQL 마이그레이션과 적용 스크립트를 함께 추가하며 기존 데이터를 먼저 확인한다.
+- `Base.metadata.create_all()`은 기존 테이블을 변경하지 않으므로 마이그레이션을 대신할 수 없다.
+- 상품·계정 삭제는 현재 정책에 맞는 소프트 삭제 또는 유예 삭제를 사용하고 직접 영구 삭제하지 않는다.
+- 문서가 바뀌면 루트 `CLAUDE.md`만 갱신한다. 별도 README를 임의로 추가하지 않는다.
+
+## 보안 및 Git 절대 규칙
+
+다음 파일과 값은 절대 Git에 올리지 않는다.
+
+- `backend/.env`, 루트 `.env`, 모든 `.env.local`
+- DB 비밀번호와 실제 `DATABASE_URL`
+- `AUTH_SECRET_KEY`, SMTP 앱 비밀번호
+- `SUPABASE_SERVICE_ROLE_KEY`
+- 관리자 비공개 URL인 실제 `VITE_ADMIN_BASE_PATH`
+- `.venv`, `node_modules`, `dist`, `__pycache__`, `*.pyc`, 로그
+- 관리자·사용자 실제 비밀번호와 접근 토큰
+
+현재 `.gitignore`는 위 환경파일과 생성물을 제외한다. 업로드 전에는 반드시 다음을 확인한다.
+
+```powershell
+git status --short --untracked-files=all
+git diff --check
+git status --ignored --short
+git ls-files | rg '(^|/)(\.env($|\.)|node_modules|dist|\.venv|__pycache__|.*\.pyc$|.*\.log$)'
+```
+
+커밋·푸시는 터미널 Git 명령으로 진행한다. `git reset --hard`, 강제 푸시, 사용자 변경 삭제는 명시적 요청 없이는 금지한다.
+
+## 기술 구성
+
+- 프런트엔드: React 19, Vite 8, JavaScript, CSS, Tiptap
+- 백엔드: Python, FastAPI, SQLAlchemy Async, Pydantic
+- DB: Supabase PostgreSQL
+- 이미지: Supabase Storage 공개 `product-images` 버킷
+- 인증: PBKDF2-SHA256 비밀번호 해시, HMAC 서명 토큰
+- 메일: SMTP, HTML·텍스트 멀티파트
+- 시간대: DB 요청과 프런트 표시 모두 `Asia/Seoul`
 
 ## 주요 구조
 
@@ -30,28 +84,32 @@ React 고객용 상품 카탈로그와 단일 관리자 상품 관리 화면을 
 product-management/
 ├─ backend/
 │  ├─ main.py
-│  ├─ migrations/
-│  ├─ scripts/
+│  ├─ migrations/                 # 001~015 스키마 변경 이력
+│  ├─ scripts/                    # 마이그레이션·검수·관리 스크립트
 │  ├─ tests/
 │  └─ src/backend/
-│     ├─ core/
+│     ├─ core/                    # 설정, DB, 토큰·비밀번호 보안
 │     └─ domain/
-│        ├─ admins/       # 현재 사용하는 단일 관리자 인증
-│        ├─ products/     # 관리자 상품 관리와 고객 공개 조회
-│        └─ users/        # 향후 사용자 인증 소스, 현재 비활성
-├─ frontend/src/
-│  ├─ api/
-│  ├─ components/
-│  ├─ config/routes.js
-│  ├─ features/user-auth/ # 향후 사용자 화면, 현재 비활성
-│  └─ pages/
+│        ├─ admins/               # 단일 관리자 인증
+│        ├─ products/             # 관리자 CRUD와 고객 공개 조회
+│        └─ users/                # 고객 인증·계정 생명주기
+├─ frontend/
+│  ├─ public/                     # favicon, 브랜드 SVG, 카탈로그 히어로 이미지
+│  └─ src/
+│     ├─ api/                     # 관리자·고객·상품 API 호출
+│     ├─ components/              # 공통, 상품, 고객 레이아웃
+│     ├─ config/routes.js         # 공개·고객·비공개 관리자 경로
+│     ├─ features/user-auth/      # 고객 인증과 마이페이지
+│     └─ pages/                   # 상품과 관리자 페이지
 ├─ .gitignore
 └─ CLAUDE.md
 ```
 
-## 실행
+현재 파일 검수 결과 `frontend/public`의 세 이미지, 001~015 마이그레이션, 적용·검수 스크립트, 고객 인증 소스는 모두 실제 코드 또는 DB 재현에 필요하다. 단순히 현재 런타임에서 직접 import되지 않는다는 이유로 마이그레이션 이력이나 관리 스크립트를 삭제하지 않는다.
 
-서로 다른 터미널에서 백엔드와 프런트를 따로 실행한다.
+## 로컬 실행
+
+백엔드와 프런트를 서로 다른 터미널에서 실행한다.
 
 ```powershell
 cd backend
@@ -63,25 +121,105 @@ cd frontend
 npm run dev
 ```
 
-- 고객 화면: `http://localhost:5173/products`
-- 관리자 화면: `http://localhost:5173` 뒤에 로컬 `VITE_ADMIN_BASE_PATH`와 `/login`을 붙인 주소
-- 백엔드: `http://127.0.0.1:8000`
+- 고객 상품 목록: `http://localhost:5173/`
+- 고객 로그인: `http://localhost:5173/user/login`
+- API: `http://127.0.0.1:8000`
 - API 문서: `http://127.0.0.1:8000/docs`
+- 관리자 화면: 로컬 `VITE_ADMIN_BASE_PATH` 뒤에 `/login`
 
-## 단일 관리자 정책
+`frontend/.env.local`에 `/`로 시작하는 12자 이상의 `VITE_ADMIN_BASE_PATH`가 없으면 프런트가 의도적으로 시작·빌드되지 않는다. 실제 경로는 문서나 커밋에 남기지 않는다.
 
-`public.admin_accounts`에는 다음 컬럼만 유지한다.
+## 환경변수
 
-| 필드 | 정책 |
-|---|---|
-| `id` | 자동 증가 내부 고유번호 |
-| `username` | DB 체크 제약으로 `admin`만 허용, 고유값 |
-| `password` | 모델 속성명 `password_hash`, PBKDF2 해시만 저장 |
-| `created_at` | 계정 생성 시각 |
-| `is_active` | 긴급 접근 차단용 상태 |
-| `auth_version` | 관리 스크립트로 비밀번호 재설정 시 기존 토큰 무효화 |
+실제 백엔드 값은 Git 제외 대상인 `backend/.env`, 관리자 프런트 경로는 `frontend/.env.local`에 둔다.
 
-관리자 회원가입·아이디 찾기·이메일·닉네임·약관·승인·탈퇴 기능과 DB 컬럼은 없다. 계정 자체를 잠그지 않으며 관리자 비밀번호는 로컬 터미널 명령으로 생성하거나 재설정한다.
+백엔드 주요 변수:
+
+- `DATABASE_URL`
+- `AUTH_SECRET_KEY`: 최소 32자
+- `ACCESS_TOKEN_EXPIRE_MINUTES`
+- `UNLOCK_TOKEN_EXPIRE_MINUTES`
+- `PASSWORD_RESET_TOKEN_EXPIRE_MINUTES`
+- `WITHDRAWAL_GRACE_DAYS`: 현재 7일
+- `WITHDRAWAL_RETENTION_DAYS`: 현재 0일
+- `BACKEND_PUBLIC_URL`, `FRONTEND_URL`
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME`, `SMTP_USE_TLS`
+- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET`
+
+## 라우팅
+
+고객 화면:
+
+- `/`: 상품 목록, 검색, 카테고리, 페이지네이션
+- `/products/{id}`: 변경되지 않는 내부 상품 ID 기반 상세
+- `/products`: 기존 주소 호환용으로 `/` 이동
+- `/products/detail?id={id}`: 기존 주소 호환용으로 `/products/{id}` 이동
+- `/user/login`: 고객 로그인과 아이디·비밀번호 찾기
+- `/user/signup`: 고객 회원가입
+- `/user/reset-password?token=...`: 이메일 토큰 기반 재설정
+- `/user`: 로그인 고객 마이페이지
+
+관리자 화면:
+
+- `${VITE_ADMIN_BASE_PATH}/login`
+- `${VITE_ADMIN_BASE_PATH}/products`
+- `${VITE_ADMIN_BASE_PATH}/products/new`
+- `${VITE_ADMIN_BASE_PATH}/products/edit?id={id}`
+
+관리자 URL 비공개 처리는 탐색 억제일 뿐 보안 경계가 아니다. 실제 접근 통제는 `/api/admin/products`의 `admin_access` 토큰 검증이 담당한다.
+
+## 고객 인증
+
+`public.users` 주요 컬럼:
+
+- `username`, `password`, `nickname`, `email`
+- `created_at`, `is_active`
+- `login_fail_count`, `locked_until`
+- `status`: `active`, `pending_deletion`, `withdrawn`
+- `withdrawn_at`, `auth_version`
+- `service_policy`, `privacy_policy`
+- `marketing_consent`: 선택 이메일 수신 동의
+
+정책:
+
+- 아이디는 영문·숫자·밑줄 4~20자이며 소문자로 정규화한다.
+- 비밀번호는 영문·숫자·특수문자를 포함한 8~64자다.
+- 비밀번호 5회 실패 시 1시간 잠그고 SMTP 설정 시 잠금 해제 메일을 보낸다.
+- 존재하지 않는 아이디·오류 비밀번호·잠긴 계정은 같은 `INVALID_CREDENTIALS` 응답을 사용한다.
+- 고객 토큰 용도는 `user_access`이며 `admin_access`와 교차 사용할 수 없다.
+- 비밀번호 변경·재설정 후 `auth_version`을 증가시켜 기존 토큰을 무효화한다.
+- 탈퇴 요청은 `pending_deletion`으로 바꾸고 7일 이내 로그인 시 복구할 수 있다.
+- FastAPI lifespan 작업이 매시간 만료 고객 계정을 정리한다. 다중 프로세스·다중 서버 배포 전에는 별도 스케줄러나 단일 작업자로 옮겨야 한다.
+- 마케팅 수신 동의는 회원가입과 마이페이지에서 변경할 수 있다.
+
+고객 API:
+
+| 방식 | 경로 | 기능 |
+|---|---|---|
+| `POST` | `/api/users/signup` | 회원가입 |
+| `POST` | `/api/users/signin` | 로그인 |
+| `POST` | `/api/users/find-username` | 아이디 안내 메일 요청 |
+| `POST` | `/api/users/password-reset/request` | 재설정 메일 요청 |
+| `POST` | `/api/users/password-reset/confirm` | 새 비밀번호 저장 |
+| `GET` | `/api/users/unlock` | 잠금 해제 메일 링크 |
+| `GET` | `/api/users/me` | 현재 고객 조회 |
+| `PUT` | `/api/users/me/password` | 비밀번호 변경 |
+| `PUT` | `/api/users/me/marketing-consent` | 마케팅 동의 변경 |
+| `DELETE` | `/api/users/me` | 7일 유예 탈퇴 신청 |
+| `POST` | `/api/users/withdrawal/cancel` | 탈퇴 취소 |
+
+현재 마이페이지의 주문 내역과 헤더 장바구니는 UI만 구현되어 있다. 실제 장바구니·주문 테이블과 API는 아직 없다.
+
+## 단일 관리자 인증
+
+`public.admin_accounts`에는 `id`, 고정 `username=admin`, `password`, `created_at`, `is_active`, `auth_version`만 유지한다.
+
+- 관리자 토큰 용도는 `admin_access`다.
+- 관리자 비밀번호는 채팅·소스·환경파일에 넣지 않고 `scripts/create_admin.py`의 `getpass`로 생성·재설정한다.
+- 서버 메모리에서 IP 버킷과 `IP+아이디` 버킷을 분리해 로그인 실패를 제한한다.
+- 다섯 번째 실패부터 `30초 → 1분 → 5분 → 1시간` 제한과 `Retry-After`를 적용한다.
+- 원문 IP 대신 HMAC 지문을 기록하며 임의 `X-Forwarded-For`를 신뢰하지 않는다.
+- 현재 제한기는 단일 프로세스 메모리 기반이다. 배포 시 Redis TTL 또는 WAF로 교체한다.
 
 ```powershell
 cd backend
@@ -89,97 +227,68 @@ $env:PYTHONPATH=(Resolve-Path .\src).Path
 .\.venv\Scripts\python.exe scripts\create_admin.py
 ```
 
-`create_admin.py`는 `getpass`로 비밀번호를 화면과 명령 기록에 노출하지 않는다. 비밀번호는 영문·숫자·특수문자를 포함한 8~64자이며 DB에는 해시만 저장된다. 비밀번호를 채팅, 소스, `.env`, Git 커밋으로 전달하지 않는다.
-
-## 관리자 로그인 제한
-
-- 서버에서 IP 버킷과 `IP+아이디` 버킷을 독립적으로 계산한다.
-- 같은 IP의 다섯 번째 실패부터 `30초 → 1분 → 5분 → 1시간` 순서로 제한한다.
-- 제한 응답은 `429 LOGIN_RATE_LIMITED`와 `Retry-After` 헤더를 포함한다.
-- 정상 로그인 시 해당 IP와 조합의 실패 기록을 초기화한다.
-- 최근 1시간 동안 세 개 이상의 IP에서 `admin` 로그인을 실패하면 보안 경고 로그를 남긴다.
-- 원문 IP 대신 HMAC 지문만 제한 저장소와 로그에서 사용한다.
-- 전달 헤더는 위조될 수 있으므로 현재는 직접 연결 IP만 사용한다. 배포 시 신뢰할 프록시 목록을 확정한 뒤 해당 프록시의 전달 IP만 읽는다.
-- 현재 `LoginRateLimiter`는 로컬 단일 프로세스용 메모리 저장소이므로 서버 재시작과 다중 프로세스 간 기록을 공유하지 않는다. 배포 단계에서는 같은 인터페이스를 Redis TTL 저장소 또는 WAF 제한으로 교체한다.
-
-## 배포 단계 보안 작업
-
-다음 항목은 로컬 기능 구현 범위에서 제외하며 실제 배포 환경과 인프라가 확정된 뒤 반드시 적용한다.
-
-- 메모리 기반 `LoginRateLimiter`를 Redis TTL 공유 저장소로 교체하고 여러 서버·프로세스가 같은 제한 상태를 사용하도록 구성한다.
-- Cloudflare 또는 배포 플랫폼 WAF에서 관리자 로그인 경로의 속도 제한과 자동화 공격 차단 규칙을 적용한다.
-- 신뢰할 리버스 프록시 목록을 확정하고 해당 프록시가 설정한 실제 접속 IP 헤더만 검증해서 사용한다. 외부 요청의 임의 `X-Forwarded-For` 헤더는 신뢰하지 않는다.
-- 관리자 로그인에 MFA를 추가하고 복구 코드 발급·보관·재발급 정책을 함께 설계한다.
-- `sessionStorage`의 관리자 토큰을 `HttpOnly`, `Secure`, `SameSite` 속성이 적용된 쿠키 기반 세션으로 전환하고 CSRF 방어를 함께 적용한다.
-- 배포 완료 전 위 항목을 별도 보안 QA로 검증하며 비공개 관리자 URL만으로 접근 보안을 대신하지 않는다.
-
-## API 경로
-
-관리자 인증:
+관리자 API:
 
 | 방식 | 경로 | 기능 |
 |---|---|---|
-| `POST` | `/api/admins/signin` | 단일 관리자 로그인 |
-| `GET` | `/api/admins/me` | 관리자 토큰과 계정 상태 확인 |
+| `POST` | `/api/admins/signin` | 관리자 로그인 |
+| `GET` | `/api/admins/me` | 관리자 토큰·활성 상태 확인 |
 
-관리자 상품:
-
-| 방식 | 경로 | 기능 |
-|---|---|---|
-| `GET`, `POST` | `/api/admin/products` | 상품 목록 또는 등록 |
-| `GET`, `PUT`, `DELETE` | `/api/admin/products/{id}` | 상품 상세·수정·소프트 삭제 |
-| `POST` | `/api/admin/products/{id}/restore` | 삭제 상품 복원 |
-| `GET` | `/api/admin/products/categories` | 활성 카테고리 |
-| `GET` | `/api/admin/products/related-candidates` | 관련 상품 후보 |
-| `POST` | `/api/admin/products/editor-images` | 상세내용 이미지 업로드 |
-| `DELETE` | `/api/admin/products/editor-image-drafts/{upload_session_id}` | 저장 취소한 상세 이미지 임시 세션 정리 |
-
-고객 공개 상품:
-
-| 방식 | 경로 | 기능 |
-|---|---|---|
-| `GET` | `/api/products` | 공개 상품 검색·카테고리·페이지 조회 |
-| `GET` | `/api/products/categories` | 공개 카테고리 조회 |
-| `GET` | `/api/products/{id}` | 공개 상품 상세와 관련 상품 조회 |
-
-## 상품 정책
+## 상품과 Storage
 
 - 상품은 관리자 개인 소유가 아닌 전역 카탈로그다.
-- 단일 관리자 구조이므로 상품과 감사 로그에 관리자 ID를 중복 저장하지 않는다. 감사 로그에는 상품, 동작, 변경값, 발생 시각만 기록한다.
-- 고객 화면에는 `status=active`, `visible=true`, 활성 카테고리 상품만 노출한다.
-- 활성 상품의 상품코드와 노출순서는 전체 카탈로그에서 고유하다.
-- 삭제 시 `status=deleted`, `deleted_at`을 기록하는 소프트 삭제를 사용하며, 현재 자동 영구 삭제 작업은 없어 DB와 Storage 원본을 계속 보존한다.
-- 관리자 목록은 판매 상품과 삭제 상품을 분리해 조회한다. 복원 상품은 `visible=false`로 시작하며 사용 중인 노출순서는 마지막 순서로 자동 변경한다.
-- 복원 시 상품코드·활성 카테고리를 다시 검증하고, 삭제 감사 로그에 남은 관련 상품 중 현재도 활성·동일 카테고리이며 최대 선택 수를 넘지 않는 연결만 되살린다.
-- 등록·수정·삭제·복원 시각은 한국 시간대를 명시해 생성하고 API는 `+09:00` 오프셋으로 응답한다. PostgreSQL `TIMESTAMPTZ`의 내부 순간은 UTC로 정규화되며 요청 DB 세션과 프런트 표시는 `Asia/Seoul`로 고정한다.
-- 대표 이미지와 상세내용 이미지는 Supabase Storage에 저장하며 상세 HTML은 서버 허용 목록으로 정리한다.
-- 대표 이미지 교체는 새 객체 업로드 → DB 반영 → 기존 객체 삭제 순서로 처리한다. DB 반영 실패 시 새 객체를 삭제해 기존 이미지를 유지한다.
-- 상품 카테고리가 바뀌면 대표 이미지와 본문 이미지 경로도 새 카테고리 폴더로 이동하며, DB 저장 실패 시 원래 경로로 되돌린다.
+- 고객에게는 `status=active`, `visible=true`, 활성 카테고리 상품만 노출한다.
+- 활성 상품코드와 노출순서는 전역 고유값이다.
+- 삭제는 `status=deleted`, `visible=false`, `deleted_at`을 기록하는 소프트 삭제다.
+- 관리자 목록은 판매 상품과 삭제 상품을 분리하며 삭제 상품을 복원할 수 있다.
+- 복원 상품은 `visible=false`로 시작하고 충돌 노출순서는 마지막 순서로 자동 조정한다.
+- 감사 로그는 상품·동작(`created`, `updated`, `deleted`, `restored`)·변경값·시각을 보존한다.
+- 상품 대표 이미지와 상세 이미지는 Supabase Storage에 저장한다.
+- 저장 경로는 `products/{category_code}/{YYYY-MM-DD}/{main|detail}-{uuid}.확장자`다.
+- 상세 이미지는 저장 전 `products/_drafts/{upload_session_id}/...`에 올리고 저장·취소 시 정리한다.
+- 비정상 종료 임시 파일은 `cleanup_product_image_drafts.py --retention-hours 24`로 정리한다.
+- 카테고리 변경 시 이미지 경로도 이동하며 DB 실패 시 원래 경로로 롤백한다.
+- 상세 HTML은 서버 허용 목록으로 다시 정리한다.
+- 상품 시각 API는 `+09:00`, 프런트 표시는 `Asia/Seoul` 기준이다.
 
-## 환경변수
+관리자 상품 API:
 
-- 실제 백엔드 값은 Git 제외 대상인 `backend/.env`에 저장한다.
-- 관리자 프런트 경로는 Git 제외 대상인 `frontend/.env.local`의 `VITE_ADMIN_BASE_PATH`에 저장한다.
-- `AUTH_SECRET_KEY`는 32자 이상의 무작위 문자열을 사용한다.
-- `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, SMTP 비밀값은 프런트에 노출하지 않는다.
-- 탈퇴·메일 관련 백엔드 설정은 향후 사용자 인증 소스 재연결을 위해 남아 있으며 현재 관리자 API에서는 사용하지 않는다.
+| 방식 | 경로 | 기능 |
+|---|---|---|
+| `GET`, `POST` | `/api/admin/products` | 목록·등록 |
+| `GET`, `PUT`, `DELETE` | `/api/admin/products/{id}` | 상세·수정·삭제 |
+| `POST` | `/api/admin/products/{id}/restore` | 복원 |
+| `GET` | `/api/admin/products/categories` | 카테고리 |
+| `GET` | `/api/admin/products/related-candidates` | 관련 상품 후보 |
+| `POST` | `/api/admin/products/editor-images` | 상세 임시 이미지 업로드 |
+| `DELETE` | `/api/admin/products/editor-image-drafts/{upload_session_id}` | 임시 세션 정리 |
 
-## 마이그레이션과 현재 DB 상태
+고객 공개 상품 API:
 
-- `007_admin_accounts_and_approval.sql`은 과거 사용자형 계정을 관리자 테이블로 전환한 이력이다.
-- `008_single_admin_account.sql`은 기존 계정을 모두 삭제하고 관리자 테이블을 단일 `admin` 전용 컬럼으로 축소하며 관리자 탈퇴 Cron과 함수를 제거한다.
-- `009_admin_ip_rate_limit.sql`은 계정 잠금 컬럼을 제거하고 서버 측 접속 IP 제한기로 전환한다.
-- `010`, `011`은 단일 관리자 구조에서 중복이 된 상품·감사 로그의 관리자 ID 컬럼을 제거한다.
-- `012_korea_timezone.sql`은 직접 DB 연결의 기본 시간대를 한국으로 설정하기 위한 마이그레이션이다. 현재 Supabase Pooler 연결은 서버 기본값을 UTC로 초기화하므로 애플리케이션 요청마다 한국 시간대를 다시 설정한다.
-- `013_product_restore.sql`은 감사 로그에 `restored` 작업 유형을 추가한다.
-- `014_remove_legacy_image_data.sql`은 Storage 경로가 있는지 확인한 후 `products.image_data`를 제거하고 `image_path`를 필수값으로 변경한다.
-- 2026-09-28 실제 DB에 `008`~`011`, `013`, `014` 적용과 구조 검증을 완료했다. `012`는 Pooler를 통한 영구 기본값 변경 대신 요청별 설정으로 동작한다. 활성 `admin` 계정 한 건과 상품 20건이 존재한다.
-- 대표 이미지와 상세 이미지는 `products/{category_code}/{YYYY-MM-DD}/{main|detail}-{uuid}.확장자` 구조로 Storage에 저장한다. 날짜는 상품 최초 등록일이며 `products.image_data` 컬럼은 제거했다.
-- 현재 단일 관리자의 운영 계획은 상품당 대표 이미지 1장과 상세내용 이미지 1장, 총 2장이다. 에디터 기능은 향후 활용을 위해 여러 상세 이미지를 허용하며 1장 제한을 강제하지 않는다. 현재 규모에서는 상품 ID 하위 폴더 없이 기존 경로를 유지하고, 실제로 상품당 이미지 수가 늘거나 이미지 버전·일괄 정리 기능이 필요해지면 `products/{category_code}/{YYYY-MM-DD}/{product_id}/...` 구조와 이미지 전용 테이블 도입을 함께 재검토한다.
-- 에디터 이미지는 저장 전 `products/_drafts/{upload_session_id}/detail-{uuid}.확장자`에 격리하고, 저장 시 정식 경로로 이동한다. 취소·화면 이탈 또는 저장 완료 시 같은 세션의 미사용 임시 파일을 정리한다.
-- 브라우저 비정상 종료 등으로 정리 요청이 도착하지 않은 임시 파일은 `backend/scripts/cleanup_product_image_drafts.py --retention-hours 24`로 정리한다. 배포 시 하루 1회 실행 작업으로 연결한다.
+| 방식 | 경로 | 기능 |
+|---|---|---|
+| `GET` | `/api/products` | 검색·카테고리·페이지 조회 |
+| `GET` | `/api/products/categories` | 활성 카테고리 |
+| `GET` | `/api/products/{id}` | 상품 상세와 관련 상품 |
 
-## 검증 명령과 완료 상태
+## DB 마이그레이션
+
+- `001`~`002`: 초기 사용자 인증과 탈퇴 생명주기
+- `003`~`006`: 상품·Storage·소프트 삭제·전역 카탈로그
+- `007`: 과거 사용자형 관리자 승인 구조 전환 이력
+- `008`: 단일 `admin` 계정 구조로 축소
+- `009`: 관리자 DB 잠금 컬럼 제거와 IP 제한 전환
+- `010`~`011`: 상품·감사 로그의 중복 관리자 ID 제거
+- `012`: 한국 시간대 설정 시도. Supabase Pooler 때문에 요청 세션에서도 별도 설정
+- `013`: 상품 복원 감사 유형
+- `014`: `products.image_data` 제거와 `image_path` 필수화
+- `015`: 고객 `marketing_consent` 추가, 실제 DB 적용 완료
+
+새 환경에서는 마이그레이션을 번호 순서대로 이해하되 이미 최종 스키마인 DB에 과거 파괴적 마이그레이션을 재실행하지 않는다. 적용 전 현재 테이블·행 수·제약조건을 읽기 전용으로 확인한다.
+
+## 검증 명령
+
+백엔드:
 
 ```powershell
 cd backend
@@ -187,7 +296,11 @@ $env:PYTHONPATH=(Resolve-Path .\src).Path
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 .\.venv\Scripts\python.exe -m compileall -q main.py src scripts
 .\.venv\Scripts\python.exe scripts\check_auth_schema.py
+.\.venv\Scripts\python.exe scripts\check_products.py
+.\.venv\Scripts\python.exe scripts\check_product_restore.py
 ```
+
+프런트:
 
 ```powershell
 cd frontend
@@ -195,4 +308,55 @@ npm run lint
 npm run build
 ```
 
-2026-09-28 기준 백엔드 단위 테스트 28개, Python 문법 검사, 프런트 린트와 프로덕션 빌드가 통과했다. 실제 상품 DB에는 잘못된 삭제 상태, 비활성·다른 카테고리 관련 상품, 상품당 2건 초과 관계가 없으며 복원 감사 제약이 적용되어 있다.
+기능 변경 시 최소 검증:
+
+- 인증: 잘못된 비밀번호, 토큰 용도 분리, 만료·`auth_version`, 잠금·탈퇴 상태
+- 상품: 활성/삭제 필터, 전역 중복, 관련 상품 동일 카테고리, 이미지 롤백
+- 프런트: 직접 URL 접근, 뒤로가기, 세션 만료, 모바일 880px 이하 페이지 크기
+- DB: 마이그레이션 재실행 가능 여부와 기존 데이터 보존
+
+## 다음 작업 후보와 미구현 범위
+
+- 장바구니·주문·결제는 아직 UI 자리만 있고 DB/API가 없다.
+- 주문 내역은 마이페이지에서 목업 UI만 표시한다.
+- 고객 로그인은 현재 `sessionStorage` 토큰 방식이다.
+- 관리자도 `sessionStorage` 토큰 방식이며 MFA가 없다.
+- 사용자 로그인 API에는 관리자 수준의 IP 속도 제한이 없다.
+- lifespan의 고객 탈퇴 정리는 서버 프로세스마다 실행될 수 있다.
+- 관리자 비공개 경로는 배포 보안 수단이 아니므로 WAF·MFA·HttpOnly 쿠키 전환이 필요하다.
+- SPA 배포 서버는 `/products/{id}`, `/user/*`, 관리자 비공개 경로를 `index.html`로 fallback해야 한다.
+- 실제 주문 구현 전 상품 상세의 구매 UX와 재고·가격 스냅샷 정책을 먼저 설계해야 한다.
+
+## Claude Code와 Codex 역할 분담
+
+Claude Code가 기본 구현과 일상적인 수정·테스트·Git 작업을 담당한다. 사용자는 다음처럼 교차 검증 가치가 큰 변경에서 Codex를 검수용으로 사용할 예정이다.
+
+- 인증·인가와 관리자/고객 토큰 경계 변경
+- 비밀번호, 잠금, 탈퇴, 계정 복구 정책 변경
+- 기존 데이터에 영향을 주는 DB 마이그레이션
+- 상품 삭제·복원·감사 로그·관련 상품 무결성
+- Supabase Storage 이동·삭제·임시 이미지 정리
+- 장바구니·주문·결제처럼 여러 도메인에 걸친 주요 기능
+- 대규모 라우팅 또는 상태 관리 변경
+- 배포 전 보안 검수
+
+교차 검증 요청 전 Claude Code가 준비할 내용:
+
+1. 변경 목적과 지켜야 할 기존 정책
+2. 변경 파일 목록과 핵심 설계 선택
+3. DB 변경 및 롤백 방법
+4. 실행한 테스트와 결과
+5. 특히 불확실하거나 반례 검토가 필요한 지점
+
+Codex 검수 결과는 무조건 적용하지 않고 기존 요구사항·실제 코드·테스트 결과와 대조한다. 검수에서 문제가 확인되면 Claude Code가 최소 범위로 수정하고 전체 검증을 다시 실행한다.
+
+## 작업 종료 체크리스트
+
+1. `git status`로 사용자 변경과 생성 파일 확인
+2. 사용되지 않는 파일은 import·문서·마이그레이션 이력을 모두 확인한 뒤에만 삭제
+3. 백엔드 테스트와 `compileall` 실행
+4. 프런트 린트와 빌드 실행
+5. DB 변경 시 읽기 전용 검수 스크립트 실행
+6. 환경파일·비밀값·빌드 산출물 미포함 확인
+7. `CLAUDE.md`의 구현 상태·테스트 개수·다음 작업 갱신
+8. 터미널 Git 명령으로 커밋·푸시

@@ -12,6 +12,7 @@ function Modal({
   cancelLabel,
   isPending = false,
   tone = 'default',
+  messageClassName = '',
   children,
 }) {
   const modalRef = useRef(null)
@@ -66,7 +67,16 @@ function Modal({
         </button>
 
         <div className="modal-content">
-          <p id="modal-message" className={'modal-message' + (formattedMessage.length > 120 ? ' modal-message--long' : '')}>{formattedMessage}</p>
+          <p
+            id="modal-message"
+            className={[
+              'modal-message',
+              formattedMessage.length > 120 ? 'modal-message--long' : '',
+              messageClassName,
+            ].filter(Boolean).join(' ')}
+          >
+            {formattedMessage}
+          </p>
           {children}
         </div>
 

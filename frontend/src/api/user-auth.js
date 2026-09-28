@@ -1,4 +1,4 @@
-// 추후 사용자 페이지에서 재사용할 가입·인증·계정 복구·탈퇴 API
+// 고객 회원가입·인증·계정 복구·탈퇴 API
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000').replace(/\/$/, '') // IPv4 로컬 백엔드 주소
 
@@ -113,6 +113,15 @@ export function getCurrentUser() {
   return request('/api/users/me', {
     method: 'GET',
     token: sessionStorage.getItem('userAccessToken'),
+  })
+}
+
+// 로그인 사용자의 선택 마케팅 수신 동의 상태 저장
+export function updateMarketingConsent(marketingConsent) {
+  return request('/api/users/me/marketing-consent', {
+    method: 'PUT',
+    token: sessionStorage.getItem('userAccessToken'),
+    body: { marketing_consent: marketingConsent },
   })
 }
 

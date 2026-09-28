@@ -1,8 +1,9 @@
-// 추후 사용자 페이지에서 재사용할 이메일 토큰 기반 비밀번호 재설정 화면
+// 이메일 토큰 기반 고객 비밀번호 재설정 화면
 
 import { useState } from 'react'
 import { resetPassword } from '../../api/user-auth.js'
 import Modal from '../../components/common/modal.jsx'
+import CustomerAccountShell from '../../components/user/customer-account-shell.jsx'
 
 // 이메일 링크 토큰·새 비밀번호 입력·검증 결과 관리
 function UserResetPasswordPage({ onNavigate }) {
@@ -45,7 +46,7 @@ function UserResetPasswordPage({ onNavigate }) {
   }
 
   return (
-    <main className="auth-page auth-page--signup">
+    <CustomerAccountShell onNavigate={onNavigate} className="customer-account-page--auth">
       <section className="auth-panel reset-panel" aria-labelledby="reset-title">
         <header className="auth-header auth-header--compact">
           <p className="auth-eyebrow">RESET PASSWORD</p>
@@ -72,7 +73,7 @@ function UserResetPasswordPage({ onNavigate }) {
       </section>
 
       <Modal isOpen={Boolean(modalMessage)} message={modalMessage} onClose={() => setModalMessage('')} />
-    </main>
+    </CustomerAccountShell>
   )
 }
 

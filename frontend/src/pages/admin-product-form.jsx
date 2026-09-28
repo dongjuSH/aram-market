@@ -32,12 +32,6 @@ const EMPTY_FORM = {
   relatedProductIds: ['', ''],
 }
 
-const PREVIEW_CATEGORIES = [
-  '식품', '패션·의류', '뷰티', '디지털·가전', '생활·주방',
-  '가구·인테리어', '스포츠·레저', '유아·완구', '도서·교육', '반려동물',
-].map((name, index) => ({ id: index + 1, name }))
-
-
 function ChevronDownIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -94,7 +88,6 @@ function DateStatus({ label, value }) {
 function AdminProductFormPage({ mode, onNavigate }) {
   const isEdit = mode === 'edit'
   const productId = Number(new URLSearchParams(window.location.search).get('id'))
-  const isPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === '1'
   const [user, setUser] = useState(() => {
     try {
       return JSON.parse(sessionStorage.getItem('adminCurrentUser')) || {}
@@ -103,11 +96,11 @@ function AdminProductFormPage({ mode, onNavigate }) {
     }
   })
   const [form, setForm] = useState(EMPTY_FORM)
-  const [categories, setCategories] = useState(isPreview ? PREVIEW_CATEGORIES : [])
+  const [categories, setCategories] = useState([])
   const [relatedCandidates, setRelatedCandidates] = useState([])
   const [createdAt, setCreatedAt] = useState('')
   const [updatedAt, setUpdatedAt] = useState('')
-  const [isLoading, setIsLoading] = useState(!isPreview)
+  const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
   const fileInputRef = useRef(null)
@@ -116,7 +109,6 @@ function AdminProductFormPage({ mode, onNavigate }) {
 
   // 저장하지 않고 이동·새로고침·탭 종료 시 이 화면에서 올린 임시 상세 이미지만 정리
   useEffect(() => {
-    if (isPreview) return undefined
     const cleanupDraft = () => {
       if (!hasDraftUploadsRef.current) return
       hasDraftUploadsRef.current = false
@@ -127,11 +119,10 @@ function AdminProductFormPage({ mode, onNavigate }) {
       window.removeEventListener('pagehide', cleanupDraft)
       cleanupDraft()
     }
-  }, [isPreview])
+  }, [])
 
   // 인증 확인 후 카테고리와 수정 대상 상품 로드
   useEffect(() => {
-    if (isPreview) return undefined
     if (isEdit && (!Number.isInteger(productId) || productId < 1)) {
       onNavigate(ADMIN_PRODUCTS_PATH, { replace: true })
       return undefined
@@ -179,13 +170,13 @@ function AdminProductFormPage({ mode, onNavigate }) {
     return () => {
       isMounted = false
     }
-  }, [isEdit, isPreview, onNavigate, productId])
+  }, [isEdit, onNavigate, productId])
 
   // 카테고리 변경 시 같은 카테고리의 관련 상품 후보 갱신
   const changeCategory = async (categoryId) => {
     setForm((current) => ({ ...current, categoryId, relatedProductIds: ['', ''] }))
     setRelatedCandidates([])
-    if (!categoryId || isPreview) return
+    if (!categoryId) return
     try {
       const result = await getRelatedCandidates(Number(categoryId), isEdit ? productId : undefined)
       setRelatedCandidates(result.items)
@@ -258,10 +249,6 @@ function AdminProductFormPage({ mode, onNavigate }) {
       payload = buildPayload()
     } catch (validationError) {
       setError(validationError.message)
-      return
-    }
-    if (isPreview) {
-      setError('미리보기에서는 상품을 저장하지 않습니다.')
       return
     }
     setIsSubmitting(true)

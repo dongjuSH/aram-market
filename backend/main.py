@@ -1,5 +1,7 @@
 # FastAPI 앱, CORS, DB 생명주기 및 도메인 라우터 조립
 
+import asyncio
+import logging
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -19,6 +21,9 @@ from backend.core.database import Base, async_session, engine
 from backend.domain.products.models.products import Product, ProductAuditLog, ProductCategory, ProductRelation
 from backend.domain.admins.models.admins import AdminAccount
 from backend.domain.admins.routers.admins import router as admin_router
+from backend.domain.users.models.users import User
+from backend.domain.users.routers.users import router as user_router
+from backend.domain.users.services.users import UserService
 from backend.domain.products.routers.catalog import router as catalog_router
 from backend.domain.products.routers.products import router as admin_product_router
 from backend.domain.products.services.storage import product_storage
@@ -37,6 +42,24 @@ DEFAULT_PRODUCT_CATEGORIES = (
     ("pet", "반려동물"),
 )
 
+logger = logging.getLogger(__name__)
+USER_PURGE_INTERVAL_SECONDS = 60 * 60
+
+
+# 실행 중인 서버에서 탈퇴 유예기간이 끝난 고객 계정을 매시간 정리
+async def purge_expired_user_loop(stop_event: asyncio.Event) -> None:
+    while not stop_event.is_set():
+        try:
+            async with async_session() as session:
+                await UserService(session).purge_expired_accounts()
+        except Exception:
+            logger.exception("expired user account purge failed")
+
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=USER_PURGE_INTERVAL_SECONDS)
+        except TimeoutError:
+            pass
+
 
 # 서버 시작 시 누락 테이블 생성 및 종료 시 DB 엔진 정리
 @asynccontextmanager
@@ -52,8 +75,14 @@ async def lifespan(app: FastAPI):
                 session.add(ProductCategory(code=code, name=name, sort_order=sort_order, is_active=True))
         await session.commit()
     await product_storage.ensure_bucket()
-    yield
-    await engine.dispose()
+    purge_stop_event = asyncio.Event()
+    purge_task = asyncio.create_task(purge_expired_user_loop(purge_stop_event))
+    try:
+        yield
+    finally:
+        purge_stop_event.set()
+        await purge_task
+        await engine.dispose()
 
 
 # FastAPI 인스턴스 생성
@@ -92,3 +121,4 @@ def read_root():
 app.include_router(admin_router, prefix="/api")
 app.include_router(admin_product_router, prefix="/api")
 app.include_router(catalog_router, prefix="/api")
+app.include_router(user_router, prefix="/api")

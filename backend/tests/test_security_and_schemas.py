@@ -2,6 +2,8 @@
 
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
+from string import Template
 
 from fastapi import HTTPException
 from backend.core.security import create_token, decode_token, hash_password, verify_password
@@ -9,7 +11,12 @@ from backend.domain.admins.models.admins import AdminAccount
 from backend.domain.admins.schemas.admins import SignInRequest, validate_password
 from backend.domain.admins.services.admins import AdminAccountService
 from backend.domain.admins.services.rate_limit import LoginRateLimiter
-from backend.domain.users.schemas.users import SignUpRequest
+from backend.domain.users.models.users import User
+from backend.domain.users.schemas.users import ChangePasswordRequest, PasswordResetConfirmRequest, SignUpRequest
+from backend.domain.users.services.users import UserService
+
+
+EMAIL_TEMPLATE_DIRECTORY = Path(__file__).resolve().parents[1] / "src" / "backend" / "domain" / "users" / "templates"
 
 
 # SQLAlchemy 단일 결과 인터페이스를 흉내 내는 인증 서비스 테스트 결과
@@ -52,7 +59,37 @@ class SecurityTests(unittest.TestCase):
             decode_token(token, "user_access")
 
 
-# 관리자와 향후 사용자 입력값 규칙 검증
+class EmailTemplateTests(unittest.TestCase):
+    def test_aram_market_email_templates_render_all_variables(self):
+        template_values = {
+            "account_unlock.html": {
+                "nickname": "아람이",
+                "username": "aram_user",
+                "unlock_url": "https://example.com/unlock",
+                "expire_minutes": 60,
+            },
+            "password_reset.html": {
+                "nickname": "아람이",
+                "username": "aram_user",
+                "reset_url": "https://example.com/reset",
+                "expire_minutes": 30,
+            },
+            "username_reminder.html": {
+                "nickname": "아람이",
+                "username": "aram_user",
+                "login_url": "https://example.com/login",
+            },
+        }
+
+        for filename, values in template_values.items():
+            with self.subTest(filename=filename):
+                source = (EMAIL_TEMPLATE_DIRECTORY / filename).read_text(encoding="utf-8")
+                rendered = Template(source).substitute(values)
+                self.assertIn("아람 마켓", rendered)
+                self.assertIn("#00734a", rendered)
+
+
+# 관리자와 고객 입력값 규칙 검증
 class SchemaTests(unittest.TestCase):
     def test_admin_signin_normalizes_username(self):
         request = SignInRequest(username=" ADMIN ", password="Password!1")
@@ -62,9 +99,9 @@ class SchemaTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_password("password")
 
-    def test_future_user_signup_schema_is_preserved(self):
+    def test_user_signup_schema_normalizes_email_and_defaults_marketing_consent(self):
         request = SignUpRequest(
-            username="future_user",
+            username="customer_user",
             password="Password!1",
             nickname="사용자1",
             email="USER@example.com",
@@ -72,6 +109,7 @@ class SchemaTests(unittest.TestCase):
             privacy_policy=True,
         )
         self.assertEqual(request.email, "user@example.com")
+        self.assertFalse(request.marketing_consent)
 
 
 # 단일 관리자 로그인·IP 제한·토큰 권한 규칙 검증
@@ -177,6 +215,63 @@ class AdminServiceTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException) as raised:
             await self.service.get_authenticated_admin(token)
         self.assertEqual(raised.exception.detail["code"], "INVALID_ACCESS_TOKEN")
+
+
+class UserServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_change_password_rejects_current_password_reuse(self):
+        user = User(
+            id=7,
+            username="customer_user",
+            password_hash=hash_password("CurrentPassword!1"),
+            nickname="사용자1",
+            email="user@example.com",
+            is_active=True,
+            status="active",
+            auth_version=0,
+            service_policy=True,
+            privacy_policy=True,
+            marketing_consent=False,
+        )
+        service = UserService(FakeDatabase(user))
+        token = create_token(user.id, "user_access", 5, {"ver": user.auth_version})
+
+        with self.assertRaises(HTTPException) as raised:
+            await service.change_password(
+                token,
+                ChangePasswordRequest(
+                    current_password="CurrentPassword!1",
+                    new_password="CurrentPassword!1",
+                ),
+            )
+
+        self.assertEqual(raised.exception.detail["code"], "PASSWORD_UNCHANGED")
+
+    async def test_password_reset_rejects_current_password_reuse(self):
+        user = User(
+            id=8,
+            username="reset_user",
+            password_hash=hash_password("CurrentPassword!1"),
+            nickname="사용자2",
+            email="reset@example.com",
+            is_active=True,
+            status="active",
+            auth_version=0,
+            service_policy=True,
+            privacy_policy=True,
+            marketing_consent=False,
+        )
+        service = UserService(FakeDatabase(user))
+        token = create_token(user.id, "user_password_reset", 5, {"ver": user.auth_version})
+
+        with self.assertRaises(HTTPException) as raised:
+            await service.reset_password(
+                PasswordResetConfirmRequest(
+                    token=token,
+                    new_password="CurrentPassword!1",
+                )
+            )
+
+        self.assertEqual(raised.exception.detail["code"], "PASSWORD_UNCHANGED")
 
 if __name__ == "__main__":
     unittest.main()
