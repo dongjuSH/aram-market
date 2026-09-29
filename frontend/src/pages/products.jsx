@@ -1,9 +1,10 @@
 // 고객이 로그인 없이 노출 상품을 검색·카테고리·페이지 단위로 조회하는 페이지
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getCatalogCategories, getCatalogProducts } from '../api/products.js'
 import CatalogFooter from '../components/products/catalog-footer.jsx'
 import CatalogHeader from '../components/products/catalog-header.jsx'
+import ProductCard from '../components/products/product-card.jsx'
 import { getCustomerProductDetailPath } from '../config/routes.js'
 
 
@@ -20,6 +21,9 @@ function ProductsPage({ onNavigate }) {
   const [error, setError] = useState('')
   const [isCompactCatalog, setIsCompactCatalog] = useState(() => window.matchMedia('(max-width: 880px)').matches)
   const pageSize = isCompactCatalog ? 8 : 12
+  const headingRef = useRef(null)
+  const gridRef = useRef(null)
+  const shouldFocusListRef = useRef(false) // 페이지 이동으로 목록이 바뀐 뒤 첫 상품으로 포커스를 옮길지 여부
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(max-width: 880px)')
@@ -61,6 +65,30 @@ function ProductsPage({ onNavigate }) {
     }
   }, [categoryId, keyword, page, pageSize])
 
+  // 페이지 이동 후 새 목록이 그려지면 목록 제목이 보이게 스크롤하고 첫 번째 상품으로 포커스 이동
+  useEffect(() => {
+    if (isLoading || !shouldFocusListRef.current) return
+    shouldFocusListRef.current = false
+    headingRef.current?.scrollIntoView({ block: 'start' })
+    gridRef.current?.querySelector('.product-card__info')?.focus({ preventScroll: true })
+  }, [isLoading, products])
+
+  // 번호·이전·다음 버튼으로 페이지 이동
+  const changePage = (nextPage) => {
+    shouldFocusListRef.current = true
+    setIsLoading(true)
+    setPage(nextPage)
+  }
+
+  // 카테고리 메뉴는 검색어를 초기화하고 해당 카테고리 전체 상품을 보여줌
+  const selectCategory = (nextCategoryId) => {
+    setIsLoading(true)
+    setKeywordInput('')
+    setKeyword('')
+    setCategoryId(nextCategoryId)
+    setPage(1)
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   return (
@@ -74,6 +102,7 @@ function ProductsPage({ onNavigate }) {
           event.preventDefault()
           setIsLoading(true)
           setPage(1)
+          setCategoryId('') // 검색은 전체 상품에서 수행
           setKeyword(keywordInput.trim())
         }}
       />
@@ -92,11 +121,7 @@ function ProductsPage({ onNavigate }) {
           className={!categoryId ? 'is-active' : ''}
           type="button"
           aria-pressed={!categoryId}
-          onClick={() => {
-            setIsLoading(true)
-            setCategoryId('')
-            setPage(1)
-          }}
+          onClick={() => selectCategory('')}
         >
           전체
         </button>
@@ -106,46 +131,28 @@ function ProductsPage({ onNavigate }) {
             key={category.id}
             type="button"
             aria-pressed={String(category.id) === categoryId}
-            onClick={() => {
-              setIsLoading(true)
-              setCategoryId(String(category.id))
-              setPage(1)
-            }}
+            onClick={() => selectCategory(String(category.id))}
           >
             {category.name}
           </button>
         ))}
         </nav>
 
-        <div className="catalog-results-heading" aria-live="polite">
+        <div className="catalog-results-heading" aria-live="polite" ref={headingRef}>
         <div>
-          <p>OUR PRODUCTS</p>
-          <h2>{categoryId ? categories.find((category) => String(category.id) === categoryId)?.name : '전체 상품'}</h2>
+          <p>{keyword ? 'SEARCH RESULTS' : 'OUR PRODUCTS'}</p>
+          <h2>{keyword ? `'${keyword}' 검색 결과` : categoryId ? categories.find((category) => String(category.id) === categoryId)?.name : '전체 상품'}</h2>
         </div>
         {!isLoading && !error && <span>총 {total.toLocaleString('ko-KR')}개</span>}
         </div>
 
         {error && <p className="catalog-notice catalog-notice--error" role="alert">{error}</p>}
-        {isLoading ? (
+        {isLoading && !products.length ? (
           <p className="catalog-notice" role="status">상품을 불러오고 있습니다.</p>
         ) : (
-          <section className="catalog-grid" aria-label="상품 목록">
+          <section className={`catalog-grid${isLoading ? ' is-loading' : ''}`} aria-label="상품 목록" aria-busy={isLoading} ref={gridRef}>
           {products.map((product) => (
-            <button
-              className="catalog-card"
-              key={product.id}
-              type="button"
-              onClick={() => onNavigate(getCustomerProductDetailPath(product.id))}
-            >
-              {product.image_url ? (
-                <img src={product.image_url} alt={product.image_description || product.name} />
-              ) : (
-                <span className="catalog-card__placeholder" aria-hidden="true">NO IMAGE</span>
-              )}
-              <span className="catalog-card__category">{product.category}</span>
-              <strong>{product.name}</strong>
-              <span className="catalog-card__price">{product.price.toLocaleString('ko-KR')}원</span>
-            </button>
+            <ProductCard key={product.id} product={product} onOpen={(item) => onNavigate(getCustomerProductDetailPath(item.id))} />
           ))}
           {!products.length && !error && <p className="catalog-empty">조건에 맞는 상품이 없습니다.</p>}
           </section>
@@ -153,9 +160,9 @@ function ProductsPage({ onNavigate }) {
 
         {totalPages > 1 && (
           <nav className="catalog-pagination" aria-label="상품 페이지">
-          <button type="button" disabled={page <= 1} onClick={() => { setIsLoading(true); setPage((current) => current - 1) }}>이전</button>
+          <button type="button" disabled={page <= 1} onClick={() => changePage(page - 1)}>이전</button>
           <span>{page} / {totalPages}</span>
-          <button type="button" disabled={page >= totalPages} onClick={() => { setIsLoading(true); setPage((current) => current + 1) }}>다음</button>
+          <button type="button" disabled={page >= totalPages} onClick={() => changePage(page + 1)}>다음</button>
           </nav>
         )}
       </main>

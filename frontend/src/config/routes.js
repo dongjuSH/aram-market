@@ -18,26 +18,53 @@ export function getCustomerProductDetailPath(productId) {
 export function isCustomerProductDetailPath(path) {
   return /^\/products\/[1-9]\d*$/.test(path)
 }
-export const USER_BASE_PATH = '/user'
+export const CART_PATH = '/cart'
+export const CHECKOUT_PATH = '/checkout'
+export const PAYMENT_SUCCESS_PATH = '/payment/success'
+export const PAYMENT_FAIL_PATH = '/payment/fail'
+const USER_BASE_PATH = '/user'
 export const USER_LOGIN_PATH = `${USER_BASE_PATH}/login`
 export const USER_SIGNUP_PATH = `${USER_BASE_PATH}/signup`
 export const USER_RESET_PASSWORD_PATH = `${USER_BASE_PATH}/reset-password`
+export const USER_VERIFY_EMAIL_PATH = `${USER_BASE_PATH}/verify-email`
+export const USER_UNLOCK_PATH = `${USER_BASE_PATH}/unlock`
 export const USER_MY_PAGE_PATH = USER_BASE_PATH
 export const USER_SUPPORTED_PATHS = new Set([
   USER_LOGIN_PATH,
   USER_SIGNUP_PATH,
   USER_RESET_PASSWORD_PATH,
+  USER_VERIFY_EMAIL_PATH,
+  USER_UNLOCK_PATH,
   USER_MY_PAGE_PATH,
 ])
+
+// 로그인 뒤 돌아갈 화면을 외부 주소·로그인 계열 화면이 아닌 고객 화면으로 제한(장바구니 포함)
+export function getSafeRedirectPath(next) {
+  if (typeof next !== 'string' || !next.startsWith('/') || next.startsWith('//') || next.includes('\\')) return CUSTOMER_PRODUCTS_PATH
+  const url = new URL(next, window.location.origin)
+  if (url.origin !== window.location.origin) return CUSTOMER_PRODUCTS_PATH
+  const allowed = url.pathname === CUSTOMER_PRODUCTS_PATH || isCustomerProductDetailPath(url.pathname) || url.pathname === USER_MY_PAGE_PATH || url.pathname === CART_PATH
+  return allowed ? `${url.pathname}${url.search}` : CUSTOMER_PRODUCTS_PATH
+}
+
+// 현재 화면으로 돌아오도록 next를 붙인 로그인 경로 생성
+export function getLoginPath(next) {
+  const safeNext = getSafeRedirectPath(next)
+  return safeNext === CUSTOMER_PRODUCTS_PATH ? USER_LOGIN_PATH : `${USER_LOGIN_PATH}?next=${encodeURIComponent(safeNext)}`
+}
 export const ADMIN_BASE_PATH = configuredAdminPath.replace(/\/$/, '')
 export const ADMIN_LOGIN_PATH = `${ADMIN_BASE_PATH}/login`
 export const ADMIN_PRODUCTS_PATH = `${ADMIN_BASE_PATH}/products`
+export const ADMIN_INQUIRIES_PATH = `${ADMIN_BASE_PATH}/inquiries`
+export const ADMIN_ORDERS_PATH = `${ADMIN_BASE_PATH}/orders`
 export const ADMIN_PRODUCT_CREATE_PATH = `${ADMIN_PRODUCTS_PATH}/new`
 export const ADMIN_PRODUCT_EDIT_PATH = `${ADMIN_PRODUCTS_PATH}/edit`
 
 export const ADMIN_SUPPORTED_PATHS = new Set([
   ADMIN_LOGIN_PATH,
   ADMIN_PRODUCTS_PATH,
+  ADMIN_INQUIRIES_PATH,
+  ADMIN_ORDERS_PATH,
   ADMIN_PRODUCT_CREATE_PATH,
   ADMIN_PRODUCT_EDIT_PATH,
 ])

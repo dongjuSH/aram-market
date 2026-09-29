@@ -1,16 +1,21 @@
-# 비밀번호 해시 및 만료·위변조 검증용 서명 토큰
+# 비밀번호 해시와 표준 JWT 발급·검증
 
 import base64
 import hashlib
 import hmac
-import json
 import secrets
 import time
+import uuid
 from typing import Any
+
+import jwt
+from fastapi import Response
 
 from backend.core.config import settings
 
 
+JWT_ALGORITHM = "HS256"  # 대칭키 HMAC-SHA256 서명
+JWT_ISSUER = "aram-market"  # 이 서버가 발급한 토큰임을 나타내는 iss 값
 PBKDF2_ITERATIONS = 600_000  # 비밀번호 대입 공격 비용을 높이는 반복 횟수
 
 
@@ -56,7 +61,7 @@ def verify_password(password: str, stored_value: str) -> bool:
     return hmac.compare_digest(_encode(actual), expected)
 
 
-# 용도·만료시간·추가 클레임을 포함한 HMAC 서명 토큰 생성
+# 표준 JWT(HS256) 생성: iss 발급자, aud 토큰 용도, sub 주체, iat/exp 시각, jti 고유번호와 추가 클레임 포함
 def create_token(
     subject: int,
     token_type: str,
@@ -65,37 +70,69 @@ def create_token(
 ) -> str:
     now = int(time.time())
     payload = {
-        "sub": subject,
-        "type": token_type,
+        **(claims or {}),
+        "iss": JWT_ISSUER,
+        "aud": token_type,
+        "sub": str(subject),  # RFC 7519 sub는 문자열
         "iat": now,
         "exp": now + expires_minutes * 60,
-        **(claims or {}),
+        "jti": uuid.uuid4().hex,
     }
-    encoded_payload = _encode(json.dumps(payload, separators=(",", ":")).encode())
-    signature = hmac.new(
-        settings.auth_secret_key.encode(),
-        encoded_payload.encode(),
-        hashlib.sha256,
-    ).digest()
-    return f"{encoded_payload}.{_encode(signature)}"
+    return jwt.encode(payload, settings.auth_secret_key, algorithm=JWT_ALGORITHM)
 
 
-# 토큰 서명·용도·만료시간 검증 및 payload 반환
+# JWT 서명·알고리즘 고정·발급자·용도(aud)·만료시간 검증 후 payload 반환(sub는 정수로 복원)
 def decode_token(token: str, expected_type: str) -> dict[str, Any]:
     try:
-        encoded_payload, encoded_signature = token.split(".", 1)
-        expected_signature = hmac.new(
-            settings.auth_secret_key.encode(),
-            encoded_payload.encode(),
-            hashlib.sha256,
-        ).digest()
-        if not hmac.compare_digest(_encode(expected_signature), encoded_signature):
-            raise ValueError
-
-        payload = json.loads(_decode(encoded_payload))
-        if payload.get("type") != expected_type or int(payload.get("exp", 0)) < int(time.time()):
-            raise ValueError
+        payload = jwt.decode(
+            token,
+            settings.auth_secret_key,
+            algorithms=[JWT_ALGORITHM],  # 서명 알고리즘을 서버가 고정(alg 변조·none 차단)
+            audience=expected_type,
+            issuer=JWT_ISSUER,
+            options={"require": ["exp", "iat", "sub", "aud", "iss"]},
+        )
         payload["sub"] = int(payload["sub"])
         return payload
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+    except (jwt.InvalidTokenError, KeyError, TypeError, ValueError) as error:
         raise ValueError("유효하지 않거나 만료된 인증 정보입니다.") from error
+
+
+# 무작위 리프레시 토큰 원문 생성(서버에는 해시만 저장)
+def generate_refresh_token() -> str:
+    return secrets.token_urlsafe(48)
+
+
+# DB 조회·저장용 리프레시 토큰 SHA-256 해시
+def hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+# JS에서 읽을 수 없는 HttpOnly 인증 쿠키 발급(기본은 접근 토큰 수명·/api 경로)
+def set_auth_cookie(
+    response: Response,
+    name: str,
+    token: str,
+    max_age: int | None = None,
+    path: str = "/api",
+) -> None:
+    response.set_cookie(
+        name,
+        token,
+        max_age=max_age if max_age is not None else settings.access_token_expire_minutes * 60,
+        path=path,
+        httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite=settings.auth_cookie_samesite,
+    )
+
+
+# 발급 때와 같은 속성으로 인증 쿠키 삭제
+def clear_auth_cookie(response: Response, name: str, path: str = "/api") -> None:
+    response.delete_cookie(
+        name,
+        path=path,
+        httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite=settings.auth_cookie_samesite,
+    )

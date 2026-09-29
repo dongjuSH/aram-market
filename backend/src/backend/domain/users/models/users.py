@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, String, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.core.database import Base
@@ -65,3 +65,67 @@ class User(Base):
 
     # 상품·혜택 이메일 수신에 대한 선택 동의
     marketing_consent: Mapped[bool] = mapped_column(default=False, nullable=False)
+
+    # 이메일 소유 확인 완료 시각(None이면 미인증 계정이며 로그인 불가)
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # 마지막 인증 메일 발송 시각(재발송 남용 방지)
+    email_verification_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# 약관 종류·시행 버전·동의 여부와 동의 시각을 변경 이력으로 보관하는 테이블
+class UserPolicyConsent(Base):
+    __tablename__ = "user_policy_consents"
+
+    __table_args__ = (
+        CheckConstraint(
+            "policy_type IN ('service', 'privacy', 'marketing')",
+            name="ck_user_policy_consents_type",
+        ),
+        Index("ix_user_policy_consents_user_type", "user_id", "policy_type"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    # 회원 삭제 시 함께 정리되는 동의 주체
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+
+    # service, privacy, marketing 중 하나
+    policy_type: Mapped[str] = mapped_column(String(20), nullable=False)
+
+    # 동의 당시 시행 중이던 약관 버전
+    policy_version: Mapped[str] = mapped_column(String(20), nullable=False)
+
+    # 동의(True) 또는 철회·거부(False)
+    agreed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+
+    # 동의·철회 시각
+    agreed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# 로그인 세션별 리프레시 토큰(해시만 저장)과 회전·재사용 탐지 상태를 보관하는 테이블
+class UserRefreshToken(Base):
+    __tablename__ = "user_refresh_tokens"
+
+    __table_args__ = (Index("ix_user_refresh_tokens_family", "family_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    # 회원 삭제 시 함께 정리되는 토큰 주인
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+
+    # 한 번의 로그인에서 회전되는 토큰들을 묶는 식별자(재사용 탐지 시 일괄 폐기)
+    family_id: Mapped[str] = mapped_column(String(36), nullable=False)
+
+    # 원문 대신 저장하는 SHA-256 해시
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+
+    # 발급 당시 인증 버전(비밀번호 변경·탈퇴 시 불일치하여 무효)
+    auth_version: Mapped[int] = mapped_column(nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    # 회전·로그아웃·재사용 탐지로 폐기된 시각(None이면 사용 가능)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

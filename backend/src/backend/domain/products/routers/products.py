@@ -2,23 +2,22 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import APIRouter, Cookie, Depends, Query, status
 
 from backend.domain.products.schemas.products import EditorImageUploadRequest, ProductCreateRequest, ProductUpdateRequest
 from backend.domain.products.services.products import ProductService
+from backend.domain.admins.routers.admins import ADMIN_ACCESS_COOKIE
 from backend.domain.admins.services.admins import AdminAccountService, api_error
 
 
 router = APIRouter(prefix="/admin/products", tags=["admin-products"])
-bearer_scheme = HTTPBearer(auto_error=False)
 
 
-# Bearer 접근 토큰 누락 및 형식 검증
-def access_token(credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme)) -> str:
-    if not credentials or credentials.scheme.lower() != "bearer":
+# 관리자 HttpOnly 쿠키 접근 토큰 누락 검증
+def access_token(token: str | None = Cookie(default=None, alias=ADMIN_ACCESS_COOKIE)) -> str:
+    if not token:
         raise api_error(status.HTTP_401_UNAUTHORIZED, "MISSING_ACCESS_TOKEN", "로그인이 필요합니다.")
-    return credentials.credentials
+    return token
 
 
 # 확장 가능한 활성 상품 카테고리 조회

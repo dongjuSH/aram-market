@@ -37,7 +37,6 @@ function AdminLoginPage({ onNavigate }) {
     setIsSubmitting(true)
     try {
       const result = await signIn({ username: form.username.trim(), password: form.password })
-      sessionStorage.setItem('adminAccessToken', result.access_token)
       sessionStorage.setItem('adminCurrentUser', JSON.stringify(result.user))
       onNavigate(ADMIN_PRODUCTS_PATH, { replace: true })
     } catch (error) {

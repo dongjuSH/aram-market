@@ -1,0 +1,62 @@
+<!-- 가입 이메일 소유 확인 링크를 포함하는 인증 메일 템플릿 -->
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>아람 마켓 이메일 인증</title>
+    <style>
+      @media only screen and (max-width: 640px) {
+        .email-wrap { padding: 18px 10px !important; }
+        .email-header, .email-content, .email-footer { padding-left: 22px !important; padding-right: 22px !important; }
+        .email-title { font-size: 27px !important; }
+        .email-button { display: block !important; text-align: center !important; }
+      }
+    </style>
+  </head>
+  <body style="margin:0;background:#eef5f2;font-family:Arial,'Noto Sans KR',sans-serif;color:#1f2924;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#eef5f2;">
+      <tr>
+        <td class="email-wrap" align="center" style="padding:36px 16px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border:1px solid #dceae4;border-radius:24px;overflow:hidden;">
+            <tr>
+              <td class="email-header" style="padding:24px 34px;border-bottom:1px solid #e3eee9;">
+                <table role="presentation" cellspacing="0" cellpadding="0">
+                  <tr>
+                    <td width="48" height="48" align="center" valign="middle" style="width:48px;height:48px;background:#00734a;border-radius:14px;color:#ffffff;font-size:22px;font-weight:800;">아</td>
+                    <td style="padding-left:13px;">
+                      <p style="margin:0;color:#17231e;font-size:21px;font-weight:800;line-height:1.2;">아람 마켓</p>
+                      <p style="margin:4px 0 0;color:#2a9760;font-size:11px;font-weight:700;letter-spacing:1.5px;">ARAM MARKET</p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td class="email-content" style="padding:44px 34px 46px;">
+                <p style="margin:0 0 12px;color:#2a9760;font-size:12px;font-weight:800;letter-spacing:1.7px;">EMAIL VERIFICATION</p>
+                <h1 class="email-title" style="margin:0 0 22px;color:#17231e;font-size:32px;line-height:1.35;">이메일 인증을 완료해 주세요</h1>
+                <p style="margin:0 0 14px;color:#53605a;font-size:16px;line-height:1.75;">$nickname님, 아람 마켓에 가입해 주셔서 감사합니다.</p>
+                <p style="margin:0 0 26px;color:#53605a;font-size:16px;line-height:1.75;">본인의 이메일이 맞다면 아래 버튼을 눌러 인증을 완료해 주세요. 인증 후 로그인할 수 있습니다.</p>
+                <a class="email-button" href="$verify_url" style="display:inline-block;background:#00734a;color:#ffffff;text-decoration:none;font-size:16px;font-weight:800;line-height:1;padding:16px 24px;border-radius:12px;">이메일 인증하기</a>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:30px;background:#f4f8f6;border-radius:14px;">
+                  <tr>
+                    <td style="padding:18px 20px;color:#64716b;font-size:13px;line-height:1.7;">링크는 $expire_hours시간 동안 유효하며, 기간 내 인증하지 않으면 가입 정보가 삭제됩니다.<br />본인이 가입하지 않았다면 이 메일을 무시해 주세요.</td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td class="email-footer" style="padding:24px 34px;background:#191d1b;color:#aab2ae;font-size:12px;line-height:1.75;">
+                <strong style="color:#ffffff;">재단법인 아람마켓 한국</strong><br />
+                연락처 02-1234-5678&nbsp;&nbsp;|&nbsp;&nbsp;이메일 info@arammarket.kr<br />
+                서울특별시 마포구 아람로 12, 5층<br />
+                <span style="color:#747d78;">Copyright © 2026 Aram Market Korea. All rights reserved.</span>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

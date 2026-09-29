@@ -7,7 +7,6 @@ export function getProducts({ keyword = '', page = 1, pageSize = 10, status = 'a
   const query = new URLSearchParams({ keyword, page: String(page), page_size: String(pageSize), status })
   return request(`/api/admin/products?${query}`, {
     method: 'GET',
-    token: sessionStorage.getItem('adminAccessToken'),
   })
 }
 
@@ -15,7 +14,6 @@ export function getProducts({ keyword = '', page = 1, pageSize = 10, status = 'a
 export function getProductCategories() {
   return request('/api/admin/products/categories', {
     method: 'GET',
-    token: sessionStorage.getItem('adminAccessToken'),
   })
 }
 
@@ -23,7 +21,6 @@ export function getProductCategories() {
 export function getProduct(productId) {
   return request(`/api/admin/products/${productId}`, {
     method: 'GET',
-    token: sessionStorage.getItem('adminAccessToken'),
   })
 }
 
@@ -33,7 +30,6 @@ export function getRelatedCandidates(categoryId, excludeId) {
   if (excludeId) query.set('exclude_id', String(excludeId))
   return request(`/api/admin/products/related-candidates?${query}`, {
     method: 'GET',
-    token: sessionStorage.getItem('adminAccessToken'),
   })
 }
 
@@ -41,7 +37,6 @@ export function getRelatedCandidates(categoryId, excludeId) {
 export function createProduct(form) {
   return request('/api/admin/products', {
     body: form,
-    token: sessionStorage.getItem('adminAccessToken'),
   })
 }
 
@@ -50,7 +45,6 @@ export function updateProduct(productId, form) {
   return request(`/api/admin/products/${productId}`, {
     method: 'PUT',
     body: form,
-    token: sessionStorage.getItem('adminAccessToken'),
   })
 }
 
@@ -58,7 +52,6 @@ export function updateProduct(productId, form) {
 export function deleteProduct(productId) {
   return request(`/api/admin/products/${productId}`, {
     method: 'DELETE',
-    token: sessionStorage.getItem('adminAccessToken'),
   })
 }
 
@@ -66,7 +59,6 @@ export function deleteProduct(productId) {
 export function restoreProduct(productId) {
   return request(`/api/admin/products/${productId}/restore`, {
     method: 'POST',
-    token: sessionStorage.getItem('adminAccessToken'),
   })
 }
 
@@ -79,7 +71,6 @@ export function uploadEditorImage(imageData, categoryId, uploadSessionId, produc
       upload_session_id: uploadSessionId,
       ...(productId ? { product_id: productId } : {}),
     },
-    token: sessionStorage.getItem('adminAccessToken'),
   })
 }
 
@@ -87,7 +78,6 @@ export function uploadEditorImage(imageData, categoryId, uploadSessionId, produc
 export function cleanupEditorImageDraft(uploadSessionId, { keepalive = false } = {}) {
   return request(`/api/admin/products/editor-image-drafts/${uploadSessionId}`, {
     method: 'DELETE',
-    token: sessionStorage.getItem('adminAccessToken'),
     keepalive,
   })
 }

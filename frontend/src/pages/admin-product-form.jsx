@@ -158,7 +158,7 @@ function AdminProductFormPage({ mode, onNavigate }) {
       .catch((requestError) => {
         if (!isMounted) return
         if (requestError.status === 401) {
-          sessionStorage.removeItem('adminAccessToken')
+          sessionStorage.removeItem('adminCurrentUser')
           onNavigate(ADMIN_LOGIN_PATH, { replace: true })
           return
         }

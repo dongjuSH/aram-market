@@ -11,6 +11,9 @@ ENV_FILE = Path(__file__).resolve().parents[3] / ".env"  # 실행 위치와 무�
 load_dotenv(dotenv_path=ENV_FILE, override=True)
 
 
+FRONTEND_URL_DEFAULT = os.getenv("FRONTEND_URL", "http://localhost:5173")  # 쿠키 Secure 기본값 판단용 화면 주소
+
+
 # 환경변수의 대표적인 참·거짓 문자열을 bool 값으로 변환
 def _as_bool(value: str | None, default: bool = False) -> bool:
     if value is None:
@@ -23,9 +26,22 @@ def _as_bool(value: str | None, default: bool = False) -> bool:
 class Settings:
     database_url: str = os.getenv("DATABASE_URL", "")  # SQLAlchemy 비동기 DB 연결 주소
     auth_secret_key: str = os.getenv("AUTH_SECRET_KEY", "development-only-change-me")  # 토큰 서명 비밀키
-    access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))  # 로그인 유지시간
+    access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))  # 접근 토큰 유효시간(만료 시 리프레시 토큰으로 재발급)
+    admin_access_token_expire_minutes: int = int(os.getenv("ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES", "15"))  # 관리자 접근 토큰 유효시간(만료 시 리프레시 토큰으로 재발급)
+    admin_refresh_token_expire_hours: int = int(os.getenv("ADMIN_REFRESH_TOKEN_EXPIRE_HOURS", "12"))  # 관리자 로그인 유지 최대시간(고객보다 짧게)
+    refresh_token_expire_days: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "14"))  # 리프레시 토큰 유효기간(로그인 유지 최대기간)
+    refresh_reuse_grace_seconds: int = int(os.getenv("REFRESH_REUSE_GRACE_SECONDS", "10"))  # 동시 탭 재발급 경합을 탈취로 오인하지 않는 유예시간
     unlock_token_expire_minutes: int = int(os.getenv("UNLOCK_TOKEN_EXPIRE_MINUTES", "60"))  # 잠금 해제 링크 시간
     password_reset_token_expire_minutes: int = int(os.getenv("PASSWORD_RESET_TOKEN_EXPIRE_MINUTES", "30"))  # 재설정 링크 시간
+    email_verification_token_expire_minutes: int = int(os.getenv("EMAIL_VERIFICATION_TOKEN_EXPIRE_MINUTES", "1440"))  # 인증 링크 시간, 미인증 계정 보관시간
+    email_verification_resend_seconds: int = int(os.getenv("EMAIL_VERIFICATION_RESEND_SECONDS", "60"))  # 인증 메일 재발송 최소 간격
+    auth_cookie_secure: bool = _as_bool(os.getenv("AUTH_COOKIE_SECURE"), FRONTEND_URL_DEFAULT.startswith("https://"))  # HTTPS 화면이면 Secure 쿠키
+    auth_cookie_samesite: str = os.getenv("AUTH_COOKIE_SAMESITE", "lax").lower()  # lax, strict, none 중 하나
+    toss_secret_key: str = os.getenv("TOSS_SECRET_KEY", "")  # 토스페이먼츠 시크릿 키(테스트는 test_sk_ 로 시작, 서버 전용)
+    toss_api_base: str = os.getenv("TOSS_API_BASE", "https://api.tosspayments.com").rstrip("/")  # 결제 승인 API 주소
+    trusted_proxy_ips: tuple[str, ...] = tuple(  # X-Forwarded-For를 신뢰할 리버스 프록시 IP·대역(쉼표 구분, 비우면 직접 접속 IP만 사용)
+        item.strip() for item in os.getenv("TRUSTED_PROXY_IPS", "").split(",") if item.strip()
+    )
     withdrawal_grace_days: int = int(os.getenv("WITHDRAWAL_GRACE_DAYS", "7"))  # 탈퇴 취소 가능 기간
     withdrawal_retention_days: int = int(os.getenv("WITHDRAWAL_RETENTION_DAYS", "0"))  # 유예 후 추가 보관기간
     backend_public_url: str = os.getenv("BACKEND_PUBLIC_URL", "http://127.0.0.1:8000")  # 메일 링크용 API 주소
@@ -45,6 +61,14 @@ class Settings:
     def __post_init__(self) -> None:
         if len(self.auth_secret_key.strip()) < 32:
             raise ValueError("AUTH_SECRET_KEY는 32자 이상의 무작위 문자열이어야 합니다.")
+        if self.auth_cookie_samesite not in {"lax", "strict", "none"}:
+            raise ValueError("AUTH_COOKIE_SAMESITE는 lax, strict, none 중 하나여야 합니다.")
+        if self.auth_cookie_samesite == "none" and not self.auth_cookie_secure:
+            raise ValueError("AUTH_COOKIE_SAMESITE=none은 AUTH_COOKIE_SECURE=true와 함께 사용해야 합니다.")
+        if self.email_verification_token_expire_minutes < 1 or self.email_verification_resend_seconds < 0:
+            raise ValueError("이메일 인증 시간 설정은 양수여야 합니다.")
+        if min(self.access_token_expire_minutes, self.admin_access_token_expire_minutes, self.refresh_token_expire_days, self.admin_refresh_token_expire_hours) < 1:
+            raise ValueError("토큰 유효시간 설정은 1 이상이어야 합니다.")
         if self.withdrawal_grace_days < 1:
             raise ValueError("WITHDRAWAL_GRACE_DAYS는 1일 이상이어야 합니다.")
         if self.withdrawal_retention_days < 0:

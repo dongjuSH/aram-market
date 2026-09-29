@@ -4,11 +4,11 @@ import CatalogFooter from '../products/catalog-footer.jsx'
 import CatalogHeader from '../products/catalog-header.jsx'
 
 
-function CustomerAccountShell({ onNavigate, children, className = '' }) {
+function CustomerAccountShell({ onNavigate, children, className = '', hideLogin = false }) {
   return (
     <div className={`catalog-page customer-account-page${className ? ` ${className}` : ''}`}>
       <a className="catalog-skip-link" href="#catalog-main">본문 바로가기</a>
-      <CatalogHeader onNavigate={onNavigate} />
+      <CatalogHeader onNavigate={onNavigate} hideLogin={hideLogin} />
       <main id="catalog-main" className="customer-account-main" tabIndex="-1">
         {children}
       </main>

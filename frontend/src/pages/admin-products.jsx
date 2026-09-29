@@ -43,7 +43,6 @@ function AdminProductsPage({ onNavigate }) {
       })
       .catch(() => {
         if (!isMounted) return
-        sessionStorage.removeItem('adminAccessToken')
         sessionStorage.removeItem('adminCurrentUser')
         sessionStorage.setItem('adminAuthNotice', '로그인이 만료되었습니다. 다시 로그인해 주세요.')
         onNavigate(ADMIN_LOGIN_PATH, { replace: true })
@@ -72,7 +71,7 @@ function AdminProductsPage({ onNavigate }) {
       .catch((requestError) => {
         if (!isMounted) return
         if (requestError.status === 401) {
-          sessionStorage.removeItem('adminAccessToken')
+          sessionStorage.removeItem('adminCurrentUser')
           onNavigate(ADMIN_LOGIN_PATH, { replace: true })
           return
         }

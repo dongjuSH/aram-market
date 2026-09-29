@@ -1,69 +1,44 @@
 // 고객 회원가입·인증·계정 복구·탈퇴 API
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000').replace(/\/$/, '') // IPv4 로컬 백엔드 주소
+import { createApiClient } from './http.js'
 
-// 서버 오류 코드·상태·추가 데이터를 보존하는 프런트 전용 오류
-export class ApiError extends Error {
-  constructor(message, code = 'UNKNOWN_ERROR', status = 0, data = {}) {
-    super(message)
-    this.name = 'ApiError'
-    this.code = code
-    this.status = status
-    this.data = data
-  }
-}
+const USER_STORAGE_KEY = 'userCurrentUser' // 토큰이 아닌 화면 표시용 로그인 상태 표식
+export const USER_AUTH_CHANGE_EVENT = 'user-auth-change' // 같은 탭에서 로그인·로그아웃 표식이 바뀌었음을 알리는 이벤트
 
-// FastAPI 문자열·구조화·검증 오류의 프런트 오류 형식 통일
-function normalizeError(payload, fallback) {
-  if (typeof payload?.detail === 'string') {
-    return { code: 'REQUEST_FAILED', message: payload.detail }
-  }
-
-  if (payload?.detail?.message) {
-    return {
-      ...payload.detail,
-      code: payload.detail.code || 'REQUEST_FAILED',
-      message: payload.detail.message,
-    }
-  }
-
-  if (Array.isArray(payload?.detail)) {
-    const message = payload.detail
-      .map((error) => error.msg?.replace(/^Value error, /, ''))
-      .filter(Boolean)
-      .join('\n')
-    return { code: 'VALIDATION_ERROR', message: message || fallback }
-  }
-
-  return { code: 'REQUEST_FAILED', message: payload?.message || fallback }
-}
-
-// JSON 요청·네트워크 장애·HTTP 오류 변환 공통 처리
-export async function request(path, { method = 'POST', body, token } = {}) {
-  let response
-
+// 다른 탭에서도 로그인 상태를 표시할 수 있도록 비밀 값이 없는 회원 표식 조회
+export function getStoredUser() {
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    })
+    return JSON.parse(localStorage.getItem(USER_STORAGE_KEY) || 'null')
   } catch {
-    throw new ApiError('서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.', 'NETWORK_ERROR')
+    return null
   }
-
-  const payload = await response.json().catch(() => ({}))
-
-  if (!response.ok) {
-    const error = normalizeError(payload, '요청을 처리하지 못했습니다.')
-    throw new ApiError(error.message, error.code, response.status, error)
-  }
-
-  return payload
 }
+
+// 로그인·정보 갱신 후 화면 표시용 회원 정보 저장
+export function storeUser(user) {
+  try {
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify({ id: user.id, nickname: user.nickname }))
+  } catch {
+    // 저장소 사용 불가 시에도 쿠키 인증은 유지됨
+  }
+  window.dispatchEvent(new Event(USER_AUTH_CHANGE_EVENT))
+}
+
+// 화면 표시용 로그인 표식 제거
+export function clearStoredUser() {
+  try {
+    localStorage.removeItem(USER_STORAGE_KEY)
+  } catch {
+    // 저장소 사용 불가 시 무시
+  }
+  window.dispatchEvent(new Event(USER_AUTH_CHANGE_EVENT))
+}
+
+export const request = createApiClient({
+  refreshPath: '/api/users/token/refresh',
+  hasSession: () => Boolean(getStoredUser()),
+  onSessionEnd: () => clearStoredUser(),
+})
 
 // 아이디 및 비밀번호 로그인 요청
 export function signIn({ username, password }) {
@@ -100,7 +75,6 @@ export function resetPassword({ token, newPassword }) {
 export function changePassword({ currentPassword, newPassword }) {
   return request('/api/users/me/password', {
     method: 'PUT',
-    token: sessionStorage.getItem('userAccessToken'),
     body: {
       current_password: currentPassword,
       new_password: newPassword,
@@ -108,11 +82,10 @@ export function changePassword({ currentPassword, newPassword }) {
   })
 }
 
-// 저장된 접근 토큰 검증 및 현재 로그인 사용자 정보 조회
+// 인증 쿠키 검증 및 현재 로그인 사용자 정보 조회
 export function getCurrentUser() {
   return request('/api/users/me', {
     method: 'GET',
-    token: sessionStorage.getItem('userAccessToken'),
   })
 }
 
@@ -120,7 +93,6 @@ export function getCurrentUser() {
 export function updateMarketingConsent(marketingConsent) {
   return request('/api/users/me/marketing-consent', {
     method: 'PUT',
-    token: sessionStorage.getItem('userAccessToken'),
     body: { marketing_consent: marketingConsent },
   })
 }
@@ -136,10 +108,39 @@ export function cancelWithdrawal(recoveryToken) {
 export function deleteAccount({ password }) {
   return request('/api/users/me', {
     method: 'DELETE',
-    token: sessionStorage.getItem('userAccessToken'),
     body: {
       password,
       confirmation: '회원 탈퇴',
     },
   })
+}
+
+// 서버에서 인증 쿠키를 삭제하고 화면 표시용 로그인 표식 제거
+export async function signOut() {
+  clearStoredUser()
+  try {
+    await request('/api/users/signout')
+  } catch {
+    // 네트워크 실패여도 표식은 이미 제거됨
+  }
+}
+
+// 회원가입 화면에 표시할 현재 시행 약관과 버전 조회
+export function getPolicies() {
+  return request('/api/users/policies', { method: 'GET' })
+}
+
+// 이메일 인증 링크 토큰 확인
+export function verifyEmail(token) {
+  return request('/api/users/email-verification/confirm', { body: { token } })
+}
+
+// 미인증 계정의 인증 메일 재발송 요청
+export function resendVerificationEmail(email) {
+  return request('/api/users/email-verification/resend', { body: { email } })
+}
+
+// 잠금 해제 메일 화면에서 버튼을 눌렀을 때 토큰 확인(POST)
+export function unlockAccount(token) {
+  return request('/api/users/unlock', { body: { token } })
 }

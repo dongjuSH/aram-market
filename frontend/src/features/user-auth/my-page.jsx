@@ -1,29 +1,27 @@
 // 회원정보·수신 동의·계정 관리·향후 주문 내역 UI를 제공하는 마이 페이지
 
 import { useEffect, useState } from 'react'
-import { getCurrentUser, updateMarketingConsent } from '../../api/user-auth.js'
+import { getOrders } from '../../api/orders.js'
+import { addToCart, toggleWishlist, useShopping } from '../cart/shopping-store.js'
+import { DELIVERY_STEPS, getDeliveryLabel } from '../../config/delivery.js'
+import { getCustomerProductDetailPath } from '../../config/routes.js'
+import { clearStoredUser, getCurrentUser, getStoredUser, signOut, storeUser, updateMarketingConsent } from '../../api/user-auth.js'
 import Modal from '../../components/common/modal.jsx'
 import CustomerAccountShell from '../../components/user/customer-account-shell.jsx'
 import ChangePasswordModal from './change-password-modal.jsx'
 import DeleteAccountModal from './delete-account-modal.jsx'
 
 
-function readSavedUser() {
-  try {
-    return JSON.parse(sessionStorage.getItem('userCurrentUser') || 'null')
-  } catch {
-    return null
-  }
-}
-
-
 function UserMyPage({ onNavigate }) {
-  const [user, setUser] = useState(readSavedUser)
+  const [user, setUser] = useState(getStoredUser)
   const [isLoading, setIsLoading] = useState(true)
   const [isSavingMarketing, setIsSavingMarketing] = useState(false)
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [notice, setNotice] = useState('')
+  const [orders, setOrders] = useState([])
+  const [isOrdersLoading, setIsOrdersLoading] = useState(true)
+  const { wishlistItems } = useShopping()
 
   useEffect(() => {
     let isMounted = true
@@ -31,12 +29,11 @@ function UserMyPage({ onNavigate }) {
       .then((result) => {
         if (!isMounted) return
         setUser(result.user)
-        sessionStorage.setItem('userCurrentUser', JSON.stringify(result.user))
+        storeUser(result.user)
       })
       .catch(() => {
         if (!isMounted) return
-        sessionStorage.removeItem('userAccessToken')
-        sessionStorage.removeItem('userCurrentUser')
+        clearStoredUser()
         sessionStorage.setItem('authNotice', '로그인이 만료되었습니다. 다시 로그인해 주세요.')
         onNavigate('/user/login', { replace: true })
       })
@@ -48,9 +45,30 @@ function UserMyPage({ onNavigate }) {
     }
   }, [onNavigate])
 
-  const logout = () => {
-    sessionStorage.removeItem('userAccessToken')
-    sessionStorage.removeItem('userCurrentUser')
+  // 결제 완료된 주문 내역 조회(실패해도 마이 페이지의 다른 영역은 그대로 사용)
+  useEffect(() => {
+    let isMounted = true
+    getOrders()
+      .then((result) => {
+        if (isMounted) setOrders(result.orders)
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (isMounted) setIsOrdersLoading(false)
+      })
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  // 헤더의 찜 목록 아이콘으로 들어오면(?section=wishlist) 찜한 상품 구역으로 스크롤
+  useEffect(() => {
+    if (isLoading || new URLSearchParams(window.location.search).get('section') !== 'wishlist') return
+    document.getElementById('wishlist-section')?.scrollIntoView({ block: 'start' })
+  }, [isLoading])
+
+  const logout = async () => {
+    await signOut()
     onNavigate('/', { replace: true })
   }
 
@@ -60,7 +78,7 @@ function UserMyPage({ onNavigate }) {
     try {
       const result = await updateMarketingConsent(nextValue)
       setUser(result.user)
-      sessionStorage.setItem('userCurrentUser', JSON.stringify(result.user))
+      storeUser(result.user)
       setNotice(nextValue ? '마케팅 정보 수신에 동의했습니다.' : '마케팅 정보 수신 동의를 철회했습니다.')
     } catch (error) {
       setNotice(error.message)
@@ -70,15 +88,13 @@ function UserMyPage({ onNavigate }) {
   }
 
   const finishPasswordChange = (message) => {
-    sessionStorage.removeItem('userAccessToken')
-    sessionStorage.removeItem('userCurrentUser')
+    clearStoredUser() // 서버가 비밀번호 변경·탈퇴 응답에서 인증 쿠키를 이미 삭제함
     sessionStorage.setItem('authNotice', message)
     onNavigate('/user/login', { replace: true })
   }
 
   const finishAccountDeletion = (message) => {
-    sessionStorage.removeItem('userAccessToken')
-    sessionStorage.removeItem('userCurrentUser')
+    clearStoredUser() // 서버가 비밀번호 변경·탈퇴 응답에서 인증 쿠키를 이미 삭제함
     sessionStorage.setItem('authNotice', message)
     onNavigate('/user/login', { replace: true })
   }
@@ -131,26 +147,92 @@ function UserMyPage({ onNavigate }) {
             </section>
           </div>
 
+          <section id="wishlist-section" className="my-page-card my-wishlist" aria-labelledby="wishlist-title">
+            <div className="my-page-card__heading">
+              <div>
+                <p>WISHLIST</p>
+                <h2 id="wishlist-title">찜한 상품 <span className="my-page-count">{wishlistItems.length}</span></h2>
+              </div>
+            </div>
+            {wishlistItems.length === 0 ? (
+              <div className="my-empty">
+                <strong>찜한 상품이 없어요</strong>
+                <span>상품 상세 화면의 ♡ 버튼으로 마음에 드는 상품을 모아 보세요.</span>
+                <button type="button" onClick={() => onNavigate('/')}>상품 보러 가기</button>
+              </div>
+            ) : (
+              <ul className="my-wishlist__grid">
+                {wishlistItems.map((item) => (
+                  <li key={item.id} className="my-wishlist__item">
+                    <button className="my-wishlist__image" type="button" aria-label={`${item.name} 상세 보기`} onClick={() => onNavigate(getCustomerProductDetailPath(item.id))}>
+                      {item.image_url ? <img src={item.image_url} alt={item.image_description || item.name} /> : <span>NO IMAGE</span>}
+                    </button>
+                    <span className="my-wishlist__category">{item.category}</span>
+                    <button className="my-wishlist__name" type="button" onClick={() => onNavigate(getCustomerProductDetailPath(item.id))}>{item.name}</button>
+                    <strong>{item.price.toLocaleString('ko-KR')}원</strong>
+                    <div className="my-wishlist__actions">
+                      <button type="button" onClick={() => addToCart(item)}>장바구니 담기</button>
+                      <button type="button" onClick={() => toggleWishlist(item)}>찜 해제</button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
           <section className="my-page-card my-orders" aria-labelledby="orders-title">
             <div className="my-page-card__heading">
               <div>
                 <p>ORDERS</p>
                 <h2 id="orders-title">주문한 제품</h2>
               </div>
-              <span className="my-page-badge">UI 준비 완료</span>
             </div>
-            <div className="my-order-preview">
-              <div className="my-order-preview__image" aria-hidden="true">
-                <svg viewBox="0 0 24 24"><path d="M5 8h14l-1 12H6L5 8Z"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/></svg>
+            {isOrdersLoading ? (
+              <p className="my-orders__note" role="status">주문 내역을 불러오고 있습니다.</p>
+            ) : orders.length === 0 ? (
+              <div className="my-empty">
+                <strong>주문 내역이 없어요</strong>
+                <span>결제가 완료된 주문이 여기에 표시됩니다.</span>
               </div>
-              <div>
-                <span>상품 상세 페이지 주문 연동 예정</span>
-                <strong>주문한 상품명이 표시됩니다.</strong>
-                <p>주문번호 · 주문일자 · 수량 · 결제금액</p>
-              </div>
-              <span className="my-order-preview__status">배송 상태</span>
-            </div>
-            <p className="my-orders__note">현재는 주문 내역 UI만 구성되어 있으며, 상품 상세 페이지 주문 기능 구현 시 실제 데이터가 연결됩니다.</p>
+            ) : (
+              <ul className="my-orders__list">
+                {orders.map((order) => (
+                  <li key={order.order_id} className="my-orders__order">
+                    <div className="my-orders__meta">
+                      <strong>{new Date(order.paid_at || order.created_at).toLocaleDateString('ko-KR')} 결제</strong>
+                      <span>주문번호 {order.order_id}</span>
+                    </div>
+                    <ol className="delivery-steps" aria-label={`배송 상태: ${getDeliveryLabel(order.delivery_status)}`}>
+                      {DELIVERY_STEPS.map((step, index) => (
+                        <li key={step.key} className={index <= DELIVERY_STEPS.findIndex((item) => item.key === order.delivery_status) ? 'is-done' : ''} aria-current={step.key === order.delivery_status ? 'step' : undefined}>
+                          {step.label}
+                        </li>
+                      ))}
+                    </ol>
+                    {order.items.map((item, index) => (
+                      <div key={`${order.order_id}-${index}`} className="my-orders__item">
+                        {item.image_url ? <img src={item.image_url} alt="" /> : <span className="my-orders__noimage" aria-hidden="true" />}
+                        <div>
+                          <strong>{item.name}</strong>
+                          <span>{item.unit_price.toLocaleString('ko-KR')}원 · {item.quantity}개</span>
+                        </div>
+                      </div>
+                    ))}
+                    {order.shipping && (
+                      <p className="my-orders__address">
+                        <strong>{order.shipping.recipient_name}</strong> · {order.shipping.recipient_phone}<br />
+                        {order.shipping.postcode ? `[${order.shipping.postcode}] ` : ''}{order.shipping.address} {order.shipping.address_detail}
+                        {order.shipping.delivery_memo && <><br />요청사항: {order.shipping.delivery_memo}</>}
+                      </p>
+                    )}
+                    <div className="my-orders__total">
+                      <span>결제 금액</span>
+                      <strong>{order.total_amount.toLocaleString('ko-KR')}원</strong>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
 
           <section className="my-page-card my-account-actions" aria-labelledby="account-actions-title">

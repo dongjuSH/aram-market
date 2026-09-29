@@ -3,7 +3,7 @@
 import re
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]{4,20}$")  # 영문·숫자·밑줄 아이디 규칙
 NICKNAME_PATTERN = re.compile(r"^[A-Za-z0-9_가-힣]{2,10}$")  # 한글 포함 화면 표시명 규칙
@@ -44,11 +44,13 @@ def normalize_email(value: str) -> str:
 class SignUpRequest(BaseModel):
     username: str = Field(min_length=4, max_length=20)  # 중복 불가 로그인 아이디
     password: str = Field(min_length=8, max_length=64)  # DB에는 해시만 저장
+    password_confirm: str = Field(min_length=1, max_length=64)  # 오타 방지용 비밀번호 재입력, 저장하지 않음
     nickname: str = Field(min_length=2, max_length=10)  # 중복 불가 표시명
     email: str = Field(min_length=3, max_length=254)  # 중복 불가 복구 이메일
     service_policy: bool  # 필수 이용약관 동의
     privacy_policy: bool  # 필수 개인정보 동의
     marketing_consent: bool = False  # 선택 마케팅 정보 수신 동의
+    policy_versions: dict[str, str] = Field(default_factory=dict)  # 화면에서 동의한 약관 종류별 버전
 
     _normalize_username = field_validator("username")(normalize_username)
     _validate_password = field_validator("password")(validate_password)
@@ -63,6 +65,13 @@ class SignUpRequest(BaseModel):
             raise ValueError("닉네임은 한글, 영문, 숫자, 밑줄 2~10자로 입력해 주세요.")
         return normalized
 
+    # 비밀번호와 비밀번호 확인 일치 검증
+    @model_validator(mode="after")
+    def validate_password_confirm(self) -> "SignUpRequest":
+        if self.password != self.password_confirm:
+            raise ValueError("비밀번호와 비밀번호 확인이 일치하지 않습니다.")
+        return self
+
     # 서비스·개인정보 필수 약관 동의 검증
     @field_validator("service_policy", "privacy_policy")
     @classmethod
@@ -70,6 +79,23 @@ class SignUpRequest(BaseModel):
         if not value:
             raise ValueError("필수 약관에 동의해 주세요.")
         return value
+
+
+# 잠금 해제 메일 화면이 서버에 전달하는 토큰
+class UnlockAccountRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=2048)  # 잠금 해제 메일 링크에 포함된 JWT
+
+
+# 이메일 인증 메일의 단기 토큰 검증
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=2048)  # 인증 메일 링크에 포함된 서명 토큰
+
+
+# 인증 메일 재발송 대상 이메일 검증
+class ResendVerificationRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)  # 가입 시 입력한 이메일
+
+    _normalize_email = field_validator("email")(normalize_email)
 
 
 # 로그인 아이디 및 현재 비밀번호 검증

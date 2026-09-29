@@ -33,7 +33,7 @@ async def send_account_unlock_email(user: User, token: str) -> bool:
         return False
 
     unlock_url = (
-        f"{settings.backend_public_url.rstrip('/')}/api/users/unlock"
+        f"{settings.frontend_url.rstrip('/')}/user/unlock"
         f"?token={quote(token)}"
     )
     template = Template((TEMPLATE_DIRECTORY / "account_unlock.html").read_text(encoding="utf-8"))
@@ -50,7 +50,7 @@ async def send_account_unlock_email(user: User, token: str) -> bool:
     message["To"] = user.email
     message.set_content(
         f"{user.nickname}님, 로그인 오류로 계정이 잠겼습니다.\n"
-        f"아래 주소를 열어 즉시 잠금을 해제해 주세요.\n{unlock_url}\n"
+        f"아래 주소를 열고 화면의 버튼을 눌러 잠금을 해제해 주세요.\n{unlock_url}\n"
         f"링크는 {settings.unlock_token_expire_minutes}분 동안 유효합니다."
     )
     message.add_alternative(html, subtype="html")
@@ -106,6 +106,34 @@ async def send_username_reminder_email(user: User) -> bool:
     message.set_content(
         f"{user.nickname}님의 아이디는 {user.username}입니다.\n"
         f"로그인: {settings.frontend_url.rstrip('/')}/user/login"
+    )
+    message.add_alternative(html, subtype="html")
+
+    await asyncio.to_thread(_send_message, message)
+    return True
+
+
+# 가입 이메일 소유 확인 링크 발송
+async def send_email_verification_email(user: User, token: str) -> bool:
+    if not settings.smtp_host or not settings.smtp_from_email:
+        return False
+
+    verify_url = f"{settings.frontend_url.rstrip('/')}/user/verify-email?token={quote(token)}"
+    expire_hours = max(1, settings.email_verification_token_expire_minutes // 60)
+    template = Template((TEMPLATE_DIRECTORY / "email_verification.html").read_text(encoding="utf-8"))
+    html = template.safe_substitute(
+        nickname=escape(user.nickname),
+        verify_url=escape(verify_url, quote=True),
+        expire_hours=expire_hours,
+    )
+
+    message = EmailMessage()
+    message["Subject"] = "[아람 마켓] 이메일 인증 안내"
+    message["From"] = formataddr((settings.smtp_from_name, settings.smtp_from_email))
+    message["To"] = user.email
+    message.set_content(
+        f"{user.nickname}님, 아래 주소를 열어 이메일 인증을 완료해 주세요.\n{verify_url}\n"
+        f"링크는 {expire_hours}시간 동안 유효하며, 기간 내 인증하지 않으면 가입 정보가 삭제됩니다."
     )
     message.add_alternative(html, subtype="html")
 
