@@ -4,13 +4,12 @@ from fastapi import status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.core.errors import api_error
 from backend.domain.products.models.products import Product, ProductCategory
 
 
 # 판매 중(활성·노출·활성 카테고리) 상품이 아니면 404 오류
 async def require_available_product(db: AsyncSession, product_id: int) -> None:
-    from backend.domain.users.services.users import api_error  # 순환 import 방지
-
     available = (
         await db.execute(
             select(Product.id)

@@ -3,6 +3,8 @@
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 
 from backend.core.client_ip import get_client_ip
+from backend.core.dependencies import USER_ACCESS_COOKIE, require_user_token
+from backend.core.errors import api_error
 from backend.core.config import settings
 from backend.core.problems import problem_response
 from backend.core.rate_limit import check_limit, enforce_limit, guard_failures, record_attempt
@@ -11,6 +13,7 @@ from backend.domain.users.schemas.users import (
     CancelWithdrawalRequest,
     ChangePasswordRequest,
     DeleteAccountRequest,
+    EmailChangeRequest,
     FindUsernameRequest,
     MarketingConsentRequest,
     PasswordResetConfirmRequest,
@@ -19,22 +22,15 @@ from backend.domain.users.schemas.users import (
     SignInRequest,
     SignUpRequest,
     UnlockAccountRequest,
+    UpdateProfileRequest,
     VerifyEmailRequest,
 )
-from backend.domain.users.services.users import UserService, api_error
+from backend.domain.users.services.users import UserService
 
 # 사용자 계정 리소스 경로 전용 라우터이며 공통 /api 접두사 적용
 router = APIRouter(prefix="/users", tags=["users"])
-USER_ACCESS_COOKIE = "user_access_token"  # 고객 접근 토큰 HttpOnly 쿠키 이름
 USER_REFRESH_COOKIE = "user_refresh_token"  # 고객 리프레시 토큰 HttpOnly 쿠키 이름
 USER_REFRESH_COOKIE_PATH = "/api/users"  # 재발급·로그아웃 등 고객 인증 API에만 전송
-
-
-# 사용자 API 공통 HttpOnly 쿠키 접근 토큰 검증
-def access_token(token: str | None = Cookie(default=None, alias=USER_ACCESS_COOKIE)) -> str:
-    if not token:
-        raise api_error(status.HTTP_401_UNAUTHORIZED, "MISSING_ACCESS_TOKEN", "로그인이 필요합니다.")
-    return token
 
 
 # 서비스 로그인 결과의 토큰을 응답 본문에서 빼 HttpOnly 쿠키로만 전달
@@ -202,7 +198,7 @@ async def unlock_account(
 async def request_account_deletion(
     request: DeleteAccountRequest,
     response: Response,
-    token: str = Depends(access_token),
+    token: str = Depends(require_user_token),
     user_service: UserService = Depends(UserService),
 ):
     result = await user_service.request_account_deletion(token, request)
@@ -213,7 +209,7 @@ async def request_account_deletion(
 # 로그인 토큰 유효성 확인 및 현재 사용자 정보 조회
 @router.get("/me", status_code=status.HTTP_200_OK)
 async def get_current_user(
-    token: str = Depends(access_token),
+    token: str = Depends(require_user_token),
     user_service: UserService = Depends(UserService),
 ):
     return await user_service.get_current_user(token)
@@ -224,7 +220,7 @@ async def get_current_user(
 async def change_password(
     request: ChangePasswordRequest,
     response: Response,
-    token: str = Depends(access_token),
+    token: str = Depends(require_user_token),
     user_service: UserService = Depends(UserService),
 ):
     result = await user_service.change_password(token, request)
@@ -236,7 +232,7 @@ async def change_password(
 @router.put("/me/marketing-consent", status_code=status.HTTP_200_OK)
 async def update_marketing_consent(
     request: MarketingConsentRequest,
-    token: str = Depends(access_token),
+    token: str = Depends(require_user_token),
     user_service: UserService = Depends(UserService),
 ):
     return await user_service.update_marketing_consent(token, request)
@@ -252,3 +248,35 @@ async def cancel_withdrawal(
 ):
     result = await guarded_token_action(user_service, http_request, lambda: user_service.cancel_withdrawal(request))
     return issue_login_cookie(response, result)
+
+
+# 닉네임·이름·휴대폰·주소 수정
+@router.put("/me/profile", status_code=status.HTTP_200_OK)
+async def update_profile(
+    request: UpdateProfileRequest,
+    token: str = Depends(require_user_token),
+    user_service: UserService = Depends(UserService),
+):
+    return await user_service.update_profile(token, request)
+
+
+# 이메일 변경 요청(비밀번호 확인 후 새 이메일로 확인 메일 발송, 메일 발송 제한 적용)
+@router.post("/me/email-change", status_code=status.HTTP_200_OK)
+async def request_email_change(
+    request: EmailChangeRequest,
+    http_request: Request,
+    token: str = Depends(require_user_token),
+    user_service: UserService = Depends(UserService),
+):
+    await limit_mail_request(user_service, http_request, request.new_email)
+    return await user_service.request_email_change(token, request)
+
+
+# 새 이메일로 받은 확인 링크의 토큰으로 이메일 변경 완료
+@router.post("/email-change/confirm", status_code=status.HTTP_200_OK)
+async def confirm_email_change(
+    request: VerifyEmailRequest,
+    http_request: Request,
+    user_service: UserService = Depends(UserService),
+):
+    return await guarded_token_action(user_service, http_request, lambda: user_service.confirm_email_change(request))

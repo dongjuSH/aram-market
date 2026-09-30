@@ -19,7 +19,7 @@ from fastapi import status
 from dotenv import load_dotenv
 
 from backend.core.config import ENV_FILE, settings
-from backend.domain.admins.services.admins import api_error
+from backend.core.errors import api_error
 
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif"}

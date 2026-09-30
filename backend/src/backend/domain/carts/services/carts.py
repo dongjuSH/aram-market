@@ -1,6 +1,6 @@
 # 로그인 고객 장바구니 조회·담기·수량 변경·삭제·병합 비즈니스 규칙
 
-from fastapi import Depends, status
+from fastapi import Depends, HTTPException, status
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,7 +11,8 @@ from backend.domain.carts.schemas.carts import MAX_QUANTITY, CartAddRequest, Car
 from backend.domain.products.models.products import Product, ProductCategory
 from backend.domain.products.services.availability import require_available_product
 from backend.domain.products.services.storage import product_storage
-from backend.domain.users.services.users import UserService, api_error
+from backend.core.errors import api_error
+from backend.domain.users.services.users import UserService
 
 
 # 고객 장바구니 서비스(인증은 고객 접근 토큰 검증을 그대로 사용)
@@ -103,7 +104,7 @@ class CartService:
         for product_id, quantity in merged.items():
             try:
                 await require_available_product(self.db, product_id)
-            except Exception:
+            except HTTPException:  # 판매 중이 아닌 상품은 건너뜀
                 continue
             await self._upsert(user_id, product_id, quantity)
         await self.db.commit()

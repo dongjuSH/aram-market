@@ -14,7 +14,7 @@ from backend.core.database import get_db
 from backend.domain.products.models.products import Product, ProductAuditLog, ProductCategory, ProductRelation
 from backend.domain.products.schemas.products import EditorImageUploadRequest, ProductCreateRequest, ProductUpdateRequest, ProductWriteRequest
 from backend.domain.products.services.storage import product_storage
-from backend.domain.admins.services.admins import api_error
+from backend.core.errors import api_error
 
 
 ALLOWED_DETAIL_TAGS = {"p", "br", "strong", "b", "em", "i", "u", "s", "h1", "h2", "h3", "ul", "ol", "li", "blockquote", "a", "img", "code", "pre", "hr"}

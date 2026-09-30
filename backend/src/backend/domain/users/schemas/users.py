@@ -5,6 +5,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from backend.core.address import AddressFields
+from backend.core.validators import normalize_person_name, normalize_phone
+
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]{4,20}$")  # 영문·숫자·밑줄 아이디 규칙
 NICKNAME_PATTERN = re.compile(r"^[A-Za-z0-9_가-힣]{2,10}$")  # 한글 포함 화면 표시명 규칙
 EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")  # 공백과 기본 주소 오류를 막는 이메일 규칙
@@ -156,3 +159,44 @@ class DeleteAccountRequest(BaseModel):
 # 7일 유예기간에 발급한 탈퇴 복구 토큰 검증
 class CancelWithdrawalRequest(BaseModel):
     recovery_token: str = Field(min_length=20, max_length=2048)  # 로그인 검증 후 발급한 10분 복구 토큰
+
+
+# 닉네임 공통 검증(가입·회원정보 수정)
+def validate_nickname_value(value: str) -> str:
+    normalized = value.strip()
+    if not NICKNAME_PATTERN.fullmatch(normalized):
+        raise ValueError("닉네임은 한글, 영문, 숫자, 밑줄 2~10자로 입력해 주세요.")
+    return normalized
+
+
+# 마이 페이지 회원정보 수정(닉네임·이름·휴대폰 필수, 주소는 주소록에서 관리)
+class UpdateProfileRequest(BaseModel):
+    nickname: str = Field(min_length=1, max_length=10)
+    name: str = Field(min_length=1, max_length=30)
+    phone: str = Field(min_length=1, max_length=20)
+
+    _validate_nickname = field_validator("nickname")(validate_nickname_value)
+    _normalize_name = field_validator("name")(normalize_person_name)
+    _normalize_phone = field_validator("phone")(normalize_phone)
+
+
+# 주소록 배송지 추가·수정(명칭 1~20자, 기본 배송지 지정 선택)
+class AddressRequest(AddressFields):
+    label: str = Field(min_length=1, max_length=20)
+    is_default: bool = False
+
+    @field_validator("label")
+    @classmethod
+    def label_not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("배송지 명칭을 입력해 주세요.")
+        return value
+
+
+# 이메일 변경 요청(현재 비밀번호 확인 후 새 이메일로 인증 메일 발송)
+class EmailChangeRequest(BaseModel):
+    new_email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=64)
+
+    _normalize_email = field_validator("new_email")(normalize_email)

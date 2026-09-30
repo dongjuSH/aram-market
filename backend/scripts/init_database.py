@@ -11,7 +11,7 @@ from backend.domain.orders.models.orders import Order, OrderItem  # noqa: F401 -
 from backend.domain.wishlists.models.wishlists import WishlistItem  # noqa: F401 - 찜 메타데이터 등록
 from backend.domain.inquiries.models.inquiries import ProductInquiry  # noqa: F401 - 문의 메타데이터 등록
 from backend.domain.reviews.models.reviews import ProductReview  # noqa: F401 - 후기 메타데이터 등록
-from backend.domain.users.models.users import User, UserPolicyConsent, UserRefreshToken  # noqa: F401 - 고객 계정·약관 동의·리프레시 토큰 메타데이터 등록
+from backend.domain.users.models.users import User, UserAddress, UserPolicyConsent, UserRefreshToken  # noqa: F401 - 고객 계정·약관 동의·리프레시 토큰 메타데이터 등록
 
 
 # SQLAlchemy 모델 메타데이터 기준 누락 테이블 생성

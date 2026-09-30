@@ -19,6 +19,7 @@ export function isCustomerProductDetailPath(path) {
   return /^\/products\/[1-9]\d*$/.test(path)
 }
 export const CART_PATH = '/cart'
+export const WISHLIST_PATH = '/wishlist'
 export const CHECKOUT_PATH = '/checkout'
 export const PAYMENT_SUCCESS_PATH = '/payment/success'
 export const PAYMENT_FAIL_PATH = '/payment/fail'
@@ -43,7 +44,7 @@ export function getSafeRedirectPath(next) {
   if (typeof next !== 'string' || !next.startsWith('/') || next.startsWith('//') || next.includes('\\')) return CUSTOMER_PRODUCTS_PATH
   const url = new URL(next, window.location.origin)
   if (url.origin !== window.location.origin) return CUSTOMER_PRODUCTS_PATH
-  const allowed = url.pathname === CUSTOMER_PRODUCTS_PATH || isCustomerProductDetailPath(url.pathname) || url.pathname === USER_MY_PAGE_PATH || url.pathname === CART_PATH
+  const allowed = url.pathname === CUSTOMER_PRODUCTS_PATH || isCustomerProductDetailPath(url.pathname) || url.pathname === USER_MY_PAGE_PATH || url.pathname === CART_PATH || url.pathname === WISHLIST_PATH
   return allowed ? `${url.pathname}${url.search}` : CUSTOMER_PRODUCTS_PATH
 }
 

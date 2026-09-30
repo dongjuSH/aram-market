@@ -2,28 +2,21 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Cookie, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, status
 
 from backend.domain.products.schemas.products import EditorImageUploadRequest, ProductCreateRequest, ProductUpdateRequest
 from backend.domain.products.services.products import ProductService
-from backend.domain.admins.routers.admins import ADMIN_ACCESS_COOKIE
-from backend.domain.admins.services.admins import AdminAccountService, api_error
+from backend.core.dependencies import require_admin_token
+from backend.domain.admins.services.admins import AdminAccountService
 
 
 router = APIRouter(prefix="/admin/products", tags=["admin-products"])
 
 
-# 관리자 HttpOnly 쿠키 접근 토큰 누락 검증
-def access_token(token: str | None = Cookie(default=None, alias=ADMIN_ACCESS_COOKIE)) -> str:
-    if not token:
-        raise api_error(status.HTTP_401_UNAUTHORIZED, "MISSING_ACCESS_TOKEN", "로그인이 필요합니다.")
-    return token
-
-
 # 확장 가능한 활성 상품 카테고리 조회
 @router.get("/categories")
 async def list_categories(
-    token: str = Depends(access_token),
+    token: str = Depends(require_admin_token),
     admin_service: AdminAccountService = Depends(AdminAccountService),
     product_service: ProductService = Depends(ProductService),
 ):
@@ -38,7 +31,7 @@ async def list_products(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10),
     product_status: str = Query(default="active", alias="status"),
-    token: str = Depends(access_token),
+    token: str = Depends(require_admin_token),
     admin_service: AdminAccountService = Depends(AdminAccountService),
     product_service: ProductService = Depends(ProductService),
 ):
@@ -54,7 +47,7 @@ async def list_products(
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_product(
     request: ProductCreateRequest,
-    token: str = Depends(access_token),
+    token: str = Depends(require_admin_token),
     admin_service: AdminAccountService = Depends(AdminAccountService),
     product_service: ProductService = Depends(ProductService),
 ):
@@ -66,7 +59,7 @@ async def create_product(
 @router.post("/editor-images", status_code=status.HTTP_201_CREATED)
 async def upload_editor_image(
     request: EditorImageUploadRequest,
-    token: str = Depends(access_token),
+    token: str = Depends(require_admin_token),
     admin_service: AdminAccountService = Depends(AdminAccountService),
     product_service: ProductService = Depends(ProductService),
 ):
@@ -78,7 +71,7 @@ async def upload_editor_image(
 @router.delete("/editor-image-drafts/{upload_session_id}")
 async def cleanup_editor_image_draft(
     upload_session_id: UUID,
-    token: str = Depends(access_token),
+    token: str = Depends(require_admin_token),
     admin_service: AdminAccountService = Depends(AdminAccountService),
     product_service: ProductService = Depends(ProductService),
 ):
@@ -91,7 +84,7 @@ async def cleanup_editor_image_draft(
 async def list_related_candidates(
     category_id: int = Query(gt=0),
     exclude_id: int | None = Query(default=None, gt=0),
-    token: str = Depends(access_token),
+    token: str = Depends(require_admin_token),
     admin_service: AdminAccountService = Depends(AdminAccountService),
     product_service: ProductService = Depends(ProductService),
 ):
@@ -103,7 +96,7 @@ async def list_related_candidates(
 @router.get("/{product_id}")
 async def get_product(
     product_id: int,
-    token: str = Depends(access_token),
+    token: str = Depends(require_admin_token),
     admin_service: AdminAccountService = Depends(AdminAccountService),
     product_service: ProductService = Depends(ProductService),
 ):
@@ -116,7 +109,7 @@ async def get_product(
 async def update_product(
     product_id: int,
     request: ProductUpdateRequest,
-    token: str = Depends(access_token),
+    token: str = Depends(require_admin_token),
     admin_service: AdminAccountService = Depends(AdminAccountService),
     product_service: ProductService = Depends(ProductService),
 ):
@@ -128,7 +121,7 @@ async def update_product(
 @router.delete("/{product_id}")
 async def delete_product(
     product_id: int,
-    token: str = Depends(access_token),
+    token: str = Depends(require_admin_token),
     admin_service: AdminAccountService = Depends(AdminAccountService),
     product_service: ProductService = Depends(ProductService),
 ):
@@ -140,7 +133,7 @@ async def delete_product(
 @router.post("/{product_id}/restore")
 async def restore_product(
     product_id: int,
-    token: str = Depends(access_token),
+    token: str = Depends(require_admin_token),
     admin_service: AdminAccountService = Depends(AdminAccountService),
     product_service: ProductService = Depends(ProductService),
 ):

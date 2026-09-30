@@ -4,7 +4,7 @@ import httpx
 from fastapi import status
 
 from backend.core.config import settings
-from backend.domain.users.services.users import api_error
+from backend.core.errors import api_error
 
 
 # 결제창에서 받은 paymentKey를 서버에서 승인(금액·주문번호는 서버 값 사용). 멱등 키로 중복 승인을 막음

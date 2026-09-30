@@ -878,3 +878,71 @@ class ShippingRulesTests(unittest.TestCase):
         from backend.domain.orders.services.orders import DELIVERY_FLOW
 
         self.assertEqual(DELIVERY_FLOW, ("paid", "preparing", "shipping", "delivered"))
+
+
+# 회원정보 수정·이메일 변경 입력 검증
+class ProfileRulesTests(unittest.TestCase):
+    def valid(self, **overrides):
+        values = dict(nickname="아람이", name="홍길동", phone="010-1234-5678")
+        values.update(overrides)
+        return values
+
+    def test_profile_normalizes_name_and_phone(self):
+        from backend.domain.users.schemas.users import UpdateProfileRequest
+
+        request = UpdateProfileRequest(**self.valid(phone="01012345678"))
+        self.assertEqual(request.phone, "010-1234-5678")
+        self.assertEqual(request.nickname, "아람이")
+
+    def test_profile_rejects_bad_nickname_phone_and_name(self):
+        from pydantic import ValidationError
+
+        from backend.domain.users.schemas.users import UpdateProfileRequest
+
+        for invalid in ({"nickname": "a"}, {"phone": "123"}, {"name": "김"}):
+            with self.assertRaises(ValidationError):
+                UpdateProfileRequest(**self.valid(**invalid))
+
+    def test_email_change_request_normalizes_email(self):
+        from backend.domain.users.schemas.users import EmailChangeRequest
+
+        self.assertEqual(EmailChangeRequest(new_email=" New@Example.COM ", password="x").new_email, "new@example.com")
+
+    def test_email_change_token_is_bound_to_purpose(self):
+        token = create_token(5, "user_email_change", 5, {"new_email": "new@example.com", "ver": 0})
+        self.assertEqual(decode_token(token, "user_email_change")["new_email"], "new@example.com")
+        with self.assertRaises(ValueError):
+            decode_token(token, "user_email_verify")
+
+
+# 주소록 입력 검증과 주문 배송지가 같은 공통 검증을 쓰는지 확인
+class AddressBookRulesTests(unittest.TestCase):
+    def valid(self, **overrides):
+        values = dict(label=" 집 ", recipient_name="홍길동", recipient_phone="01012345678", address="서울특별시 마포구 아람로 12")
+        values.update(overrides)
+        return values
+
+    def test_address_request_normalizes_fields_and_defaults(self):
+        from backend.domain.users.schemas.users import AddressRequest
+
+        request = AddressRequest(**self.valid(postcode=" 04001 "))
+        self.assertEqual((request.label, request.recipient_phone, request.postcode, request.is_default), ("집", "010-1234-5678", "04001", False))
+
+    def test_address_request_rejects_invalid_values(self):
+        from pydantic import ValidationError
+
+        from backend.domain.users.schemas.users import AddressRequest
+
+        for invalid in ({"label": "  "}, {"label": "가" * 21}, {"recipient_phone": "123"}, {"recipient_name": "김"}, {"address": "서울"}):
+            with self.assertRaises(ValidationError):
+                AddressRequest(**self.valid(**invalid))
+
+    def test_order_shipping_shares_address_validation(self):
+        from pydantic import ValidationError
+
+        from backend.domain.orders.schemas.orders import ShippingAddress
+
+        shipping = ShippingAddress(recipient_name="홍길동", recipient_phone="01012345678", address="서울특별시 마포구 아람로 12", delivery_memo=" 문 앞 ")
+        self.assertEqual((shipping.recipient_phone, shipping.delivery_memo), ("010-1234-5678", "문 앞"))
+        with self.assertRaises(ValidationError):
+            ShippingAddress(recipient_name="홍길동", recipient_phone="1", address="서울특별시 마포구 아람로 12")

@@ -1,6 +1,7 @@
 // 주문 초안(주문할 상품) 보관과 주문 생성(서버가 금액 계산) 후 결제창을 여는 구매 진행 함수
 
 import { createOrder } from '../../api/orders.js'
+import { createAddress } from '../../api/addresses.js'
 import { requestPayment } from './toss-payments.js'
 
 const DRAFT_KEY = 'aramMarketCheckoutDraft' // 탭을 닫으면 사라지는 sessionStorage에 보관
@@ -30,6 +31,16 @@ export function clearCheckoutDraft() {
     sessionStorage.removeItem(DRAFT_KEY)
   } catch {
     // 저장소 사용 불가 시 무시
+  }
+}
+
+// 결제 성공 후 주문서에서 입력한 새 배송지를 주소록에 추가(첫 배송지는 서버가 기본 배송지로 지정). 성공 여부만 반환
+export async function saveNewAddress({ label, newAddress }) {
+  try {
+    await createAddress({ label, ...newAddress, isDefault: false })
+    return true
+  } catch {
+    return false
   }
 }
 

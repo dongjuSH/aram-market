@@ -9,6 +9,7 @@ from sqlalchemy import delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.core.errors import api_error
 from backend.core.config import settings
 from backend.core.database import get_db
 from backend.core.security import (
@@ -25,6 +26,7 @@ from backend.domain.users.schemas.users import (
     CancelWithdrawalRequest,
     ChangePasswordRequest,
     DeleteAccountRequest,
+    EmailChangeRequest,
     FindUsernameRequest,
     MarketingConsentRequest,
     PasswordResetConfirmRequest,
@@ -32,11 +34,13 @@ from backend.domain.users.schemas.users import (
     ResendVerificationRequest,
     SignInRequest,
     SignUpRequest,
+    UpdateProfileRequest,
     VerifyEmailRequest,
 )
 from backend.domain.users.services.policies import CURRENT_POLICIES, POLICY_MARKETING, POLICY_PRIVACY, POLICY_SERVICE
 from backend.domain.users.services.email import (
     send_account_unlock_email,
+    send_email_change_email,
     send_email_verification_email,
     send_password_reset_email,
     send_username_reminder_email,
@@ -49,14 +53,6 @@ STATUS_ACTIVE = "active"  # 정상 이용 계정
 STATUS_PENDING_DELETION = "pending_deletion"  # 7일 탈퇴 취소 유예 계정
 STATUS_WITHDRAWN = "withdrawn"  # 유예 종료 후 Cron 삭제 대상 계정
 DUMMY_PASSWORD_HASH = hash_password("Dummy!Password1")  # 미가입 아이디 응답시간 차이 완화용 해시
-
-
-# 프런트 오류 구분용 공통 오류 형식 생성
-def api_error(status_code: int, code: str, message: str, **metadata) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={"code": code, "message": message, **metadata},
-    )
 
 
 # 계정 존재·잠금·실패 횟수를 노출하지 않는 공통 로그인 실패 오류
@@ -420,7 +416,7 @@ class UserService:
         tokens = await self._issue_tokens(user, str(uuid.uuid4()))
         return {"message": "로그인을 성공하였습니다.", **tokens, "user": self._user_payload(user)}
 
-    # 화면에 필요한 최소 회원정보
+    # 화면(마이 페이지·주문서 자동 입력)에 필요한 회원정보
     def _user_payload(self, user: User) -> dict:
         return {
             "id": user.id,
@@ -428,6 +424,8 @@ class UserService:
             "nickname": user.nickname,
             "email": user.email,
             "marketing_consent": user.marketing_consent,
+            "name": user.name,
+            "phone": user.phone,
         }
 
     # 인증 버전을 담은 접근 토큰 생성과 리프레시 토큰(해시만 저장) 발급
@@ -541,15 +539,7 @@ class UserService:
     # 로그인 토큰 검증 후 현재 화면에 필요한 사용자 정보 반환
     async def get_current_user(self, token: str) -> dict:
         user = await self._get_user_from_access_token(token)
-        return {
-            "user": {
-                "id": user.id,
-                "username": user.username,
-                "nickname": user.nickname,
-                "email": user.email,
-                "marketing_consent": user.marketing_consent,
-            }
-        }
+        return {"user": self._user_payload(user)}
 
     # 마이 페이지에서 선택 마케팅 수신 동의 상태 변경
     async def update_marketing_consent(self, token: str, request: MarketingConsentRequest) -> dict:
@@ -560,14 +550,83 @@ class UserService:
         await self.db.commit()
         return {
             "message": "마케팅 수신 동의 상태가 변경되었습니다.",
-            "user": {
-                "id": user.id,
-                "username": user.username,
-                "nickname": user.nickname,
-                "email": user.email,
-                "marketing_consent": user.marketing_consent,
-            },
+            "user": self._user_payload(user),
         }
+
+    # 닉네임·이름·휴대폰 수정(닉네임은 중복 불가)
+    async def update_profile(self, token: str, request: UpdateProfileRequest) -> dict:
+        user = await self._get_user_from_access_token(token)
+        if request.nickname != user.nickname:
+            taken = (
+                await self.db.execute(select(User.id).where(User.nickname == request.nickname, User.id != user.id))
+            ).scalar_one_or_none()
+            if taken is not None:
+                raise api_error(status.HTTP_409_CONFLICT, "NICKNAME_EXISTS", "이미 사용 중인 닉네임입니다.")
+        user.nickname = request.nickname
+        user.name = request.name
+        user.phone = request.phone
+        try:
+            await self.db.commit()
+        except IntegrityError as error:  # 조회 이후 동시 변경으로 닉네임이 겹친 경우
+            await self.db.rollback()
+            raise api_error(status.HTTP_409_CONFLICT, "NICKNAME_EXISTS", "이미 사용 중인 닉네임입니다.") from error
+        return {"message": "회원정보가 저장되었습니다.", "user": self._user_payload(user)}
+
+    # 현재 비밀번호 확인 후 새 이메일로 확인 메일 발송(이메일은 링크 확인 전까지 바뀌지 않음)
+    async def request_email_change(self, token: str, request: EmailChangeRequest) -> dict:
+        user = await self._get_user_from_access_token(token)
+        if not verify_password(request.password, user.password_hash):
+            raise api_error(status.HTTP_401_UNAUTHORIZED, "INVALID_PASSWORD", "비밀번호가 일치하지 않습니다.")
+        if request.new_email == user.email:
+            raise api_error(status.HTTP_400_BAD_REQUEST, "EMAIL_UNCHANGED", "현재 사용 중인 이메일과 다른 주소를 입력해 주세요.")
+        taken = (await self.db.execute(select(User.id).where(User.email == request.new_email))).scalar_one_or_none()
+        if taken is not None:
+            raise api_error(status.HTTP_409_CONFLICT, "EMAIL_EXISTS", "이미 가입된 이메일입니다.")
+
+        email_token = create_token(
+            user.id,
+            "user_email_change",
+            settings.email_verification_token_expire_minutes,
+            {"new_email": request.new_email, "ver": user.auth_version},
+        )
+        try:
+            sent = await send_email_change_email(user, request.new_email, email_token)
+        except Exception:
+            logger.exception("이메일 변경 확인 메일 발송에 실패했습니다.")
+            sent = False
+        if not sent:
+            raise api_error(status.HTTP_503_SERVICE_UNAVAILABLE, "EMAIL_SEND_FAILED", "확인 메일을 보내지 못했습니다. 잠시 후 다시 시도해 주세요.")
+        return {"message": f"{request.new_email} 주소로 확인 메일을 보냈습니다. 메일의 링크를 눌러야 이메일이 변경됩니다."}
+
+    # 확인 메일의 링크 토큰으로 이메일 변경을 완료(이미 변경된 링크는 성공 처리)
+    async def confirm_email_change(self, request: VerifyEmailRequest) -> dict:
+        invalid_error = api_error(
+            status.HTTP_400_BAD_REQUEST,
+            "INVALID_EMAIL_CHANGE_TOKEN",
+            "유효하지 않거나 만료된 링크입니다. 마이 페이지에서 이메일 변경을 다시 요청해 주세요.",
+        )
+        try:
+            payload = decode_token(request.token, "user_email_change")
+        except ValueError as error:
+            raise invalid_error from error
+
+        user = await self.db.get(User, payload["sub"])
+        new_email = payload.get("new_email")
+        if not user or user.status != STATUS_ACTIVE or payload.get("ver") != user.auth_version or not new_email:
+            raise invalid_error
+        if user.email == new_email:
+            return {"message": "이메일이 변경되었습니다."}
+        taken = (await self.db.execute(select(User.id).where(User.email == new_email, User.id != user.id))).scalar_one_or_none()
+        if taken is not None:
+            raise api_error(status.HTTP_409_CONFLICT, "EMAIL_EXISTS", "이미 다른 계정에서 사용 중인 이메일입니다.")
+        user.email = new_email
+        user.email_verified_at = datetime.now(timezone.utc)
+        try:
+            await self.db.commit()
+        except IntegrityError as error:
+            await self.db.rollback()
+            raise api_error(status.HTTP_409_CONFLICT, "EMAIL_EXISTS", "이미 다른 계정에서 사용 중인 이메일입니다.") from error
+        return {"message": "이메일이 변경되었습니다."}
 
     # 계정 존재 여부를 숨기고 일치 계정에만 아이디 안내 메일 발송
     async def find_username(self, request: FindUsernameRequest) -> dict:

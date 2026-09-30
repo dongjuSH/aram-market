@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, String, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.core.database import Base
@@ -65,6 +65,10 @@ class User(Base):
 
     # 상품·혜택 이메일 수신에 대한 선택 동의
     marketing_consent: Mapped[bool] = mapped_column(default=False, nullable=False)
+
+    # 계정 주인의 이름·휴대폰(마이 페이지에서 선택 등록, 주문서 받는 분·연락처 자동 입력에 사용). 배송지 주소는 user_addresses에 보관
+    name: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # 이메일 소유 확인 완료 시각(None이면 미인증 계정이며 로그인 불가)
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -129,3 +133,28 @@ class UserRefreshToken(Base):
 
     # 회전·로그아웃·재사용 탐지로 폐기된 시각(None이면 사용 가능)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# 회원의 배송지 주소록(최대 10개, 기본 배송지는 회원당 1개)
+class UserAddress(Base):
+    __tablename__ = "user_addresses"
+
+    # 기본 배송지가 회원당 둘 이상이 되지 않도록 DB가 보장
+    __table_args__ = (
+        Index("uq_user_addresses_default", "user_id", unique=True, postgresql_where=text("is_default")),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    # 회원 삭제 시 함께 정리
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+
+    label: Mapped[str] = mapped_column(String(20), nullable=False)  # 명칭(집, 회사 등)
+    recipient_name: Mapped[str] = mapped_column(String(30), nullable=False)
+    recipient_phone: Mapped[str] = mapped_column(String(20), nullable=False)
+    postcode: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    address: Mapped[str] = mapped_column(String(200), nullable=False)
+    address_detail: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

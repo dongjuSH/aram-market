@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { confirmPayment } from '../../api/orders.js'
-import { clearCheckoutDraft } from './checkout.js'
+import { clearCheckoutDraft, loadCheckoutDraft, saveNewAddress } from './checkout.js'
 import CustomerAccountShell from '../../components/user/customer-account-shell.jsx'
 import { CHECKOUT_PATH, CUSTOMER_PRODUCTS_PATH, USER_MY_PAGE_PATH } from '../../config/routes.js'
 
@@ -20,9 +20,12 @@ export function PaymentSuccessPage({ onNavigate }) {
     if (!isValid || requestedRef.current) return
     requestedRef.current = true
     confirmPayment({ paymentKey, orderId, amount })
-      .then((order) => {
+      .then(async (order) => {
+        // 주문서에서 '주소록에 저장'을 선택한 새 배송지는 결제 성공 후에만 저장(실패해도 결제 결과에는 영향 없음)
+        const draft = loadCheckoutDraft()
+        const addressSaved = draft?.saveToBook && draft.newAddress ? await saveNewAddress(draft) : null
         clearCheckoutDraft() // 결제가 끝났으니 주문 초안(배송지 포함)을 지움
-        setState({ status: 'success', order })
+        setState({ status: 'success', order, addressSaved })
       })
       .catch((error) => setState({ status: 'failed', message: error.message }))
   }, [isValid, paymentKey, orderId, amount])
@@ -47,6 +50,9 @@ export function PaymentSuccessPage({ onNavigate }) {
             <div><dt>주문번호</dt><dd>{state.order.order_id}</dd></div>
             <div><dt>주문 상품</dt><dd>{state.order.order_name}</dd></div>
             <div><dt>결제 금액</dt><dd>{state.order.total_amount.toLocaleString('ko-KR')}원</dd></div>
+            {state.addressSaved !== null && state.addressSaved !== undefined && (
+              <div><dt>주소록</dt><dd>{state.addressSaved ? '배송지를 주소록에 저장했어요' : '주소록에 저장하지 못했어요. 마이 페이지에서 추가할 수 있어요'}</dd></div>
+            )}
           </dl>
         )}
         {state.status !== 'loading' && (

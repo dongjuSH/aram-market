@@ -14,7 +14,8 @@ from backend.domain.products.models.products import Product
 from backend.domain.products.services.availability import require_available_product
 from backend.domain.reviews.services.reviews import mask_nickname
 from backend.domain.users.models.users import User
-from backend.domain.users.services.users import UserService, api_error
+from backend.core.errors import api_error
+from backend.domain.users.services.users import UserService
 
 SECRET_PLACEHOLDER = "비밀글입니다."
 

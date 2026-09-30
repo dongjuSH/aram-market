@@ -139,3 +139,32 @@ async def send_email_verification_email(user: User, token: str) -> bool:
 
     await asyncio.to_thread(_send_message, message)
     return True
+
+
+# 마이 페이지 이메일 변경 시 새 이메일 주소로 소유 확인 링크 발송
+async def send_email_change_email(user: User, new_email: str, token: str) -> bool:
+    if not settings.smtp_host or not settings.smtp_from_email:
+        return False
+
+    confirm_url = f"{settings.frontend_url.rstrip('/')}/user/verify-email?type=email-change&token={quote(token)}"
+    expire_hours = max(1, settings.email_verification_token_expire_minutes // 60)
+    template = Template((TEMPLATE_DIRECTORY / "email_change.html").read_text(encoding="utf-8"))
+    html = template.safe_substitute(
+        nickname=escape(user.nickname),
+        verify_url=escape(confirm_url, quote=True),
+        new_email=escape(new_email),
+        expire_hours=expire_hours,
+    )
+
+    message = EmailMessage()
+    message["Subject"] = "[아람 마켓] 이메일 변경 확인 안내"
+    message["From"] = formataddr((settings.smtp_from_name, settings.smtp_from_email))
+    message["To"] = new_email
+    message.set_content(
+        f"{user.nickname}님, 아람 마켓 계정의 이메일을 {new_email}(으)로 변경하려면 아래 주소를 열어 확인해 주세요.\n{confirm_url}\n"
+        f"링크는 {expire_hours}시간 동안 유효합니다. 본인이 요청하지 않았다면 이 메일을 무시해 주세요."
+    )
+    message.add_alternative(html, subtype="html")
+
+    await asyncio.to_thread(_send_message, message)
+    return True

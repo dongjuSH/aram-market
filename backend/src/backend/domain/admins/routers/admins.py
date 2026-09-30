@@ -3,16 +3,17 @@
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 
 from backend.core.client_ip import get_client_ip
+from backend.core.dependencies import ADMIN_ACCESS_COOKIE, require_admin_token
+from backend.core.errors import api_error
 from backend.core.config import settings
 from backend.core.problems import problem_response
 from backend.core.rate_limit import guard_failures
 from backend.core.security import clear_auth_cookie, set_auth_cookie
 from backend.domain.admins.schemas.admins import SignInRequest
-from backend.domain.admins.services.admins import AdminAccountService, api_error
+from backend.domain.admins.services.admins import AdminAccountService
 
 
 router = APIRouter(prefix="/admins", tags=["admins"])  # main.py에서 공통 /api 접두사 적용
-ADMIN_ACCESS_COOKIE = "admin_access_token"  # 관리자 접근 토큰 HttpOnly 쿠키 이름
 ADMIN_REFRESH_COOKIE = "admin_refresh_token"  # 관리자 리프레시 토큰 HttpOnly 쿠키 이름
 ADMIN_REFRESH_COOKIE_PATH = "/api/admins"  # 재발급·로그아웃 등 관리자 인증 API에만 전송
 
@@ -40,13 +41,6 @@ def issue_login_cookies(response: Response, result: dict) -> dict:
 def clear_login_cookies(response: Response) -> None:
     clear_auth_cookie(response, ADMIN_ACCESS_COOKIE)
     clear_auth_cookie(response, ADMIN_REFRESH_COOKIE, path=ADMIN_REFRESH_COOKIE_PATH)
-
-
-# 관리자 API 공통 HttpOnly 쿠키 접근 토큰 검증
-def access_token(token: str | None = Cookie(default=None, alias=ADMIN_ACCESS_COOKIE)) -> str:
-    if not token:
-        raise api_error(status.HTTP_401_UNAUTHORIZED, "MISSING_ACCESS_TOKEN", "로그인이 필요합니다.")
-    return token
 
 
 # 고정 아이디 admin과 비밀번호 로그인
@@ -105,7 +99,7 @@ async def refresh_token(
 # 관리자 접근 토큰 유효성 확인
 @router.get("/me", status_code=status.HTTP_200_OK)
 async def get_current_user(
-    token: str = Depends(access_token),
+    token: str = Depends(require_admin_token),
     admin_service: AdminAccountService = Depends(AdminAccountService),
 ):
     return await admin_service.get_current_user(token)

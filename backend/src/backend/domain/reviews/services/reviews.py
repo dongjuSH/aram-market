@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, status
 from sqlalchemy import delete, exists, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.database import get_db
@@ -12,7 +13,8 @@ from backend.domain.products.services.availability import require_available_prod
 from backend.domain.reviews.models.reviews import ProductReview
 from backend.domain.reviews.schemas.reviews import ReviewRequest
 from backend.domain.users.models.users import User
-from backend.domain.users.services.users import UserService, api_error
+from backend.core.errors import api_error
+from backend.domain.users.services.users import UserService
 
 
 # 닉네임 첫 글자만 보이고 나머지는 가림(예: 홍길동 → 홍**)
@@ -124,7 +126,11 @@ class ReviewService:
             raise api_error(status.HTTP_409_CONFLICT, "REVIEW_ALREADY_EXISTS", "이미 이 상품의 후기를 작성했어요. 기존 후기를 수정해 주세요.")
         review = ProductReview(product_id=product_id, user_id=user.id, rating=request.rating, content=request.content)
         self.db.add(review)
-        await self.db.commit()
+        try:
+            await self.db.commit()
+        except IntegrityError as error:  # 조회 이후 동시 요청으로 같은 상품 후기가 이미 저장된 경우
+            await self.db.rollback()
+            raise api_error(status.HTTP_409_CONFLICT, "REVIEW_ALREADY_EXISTS", "이미 이 상품의 후기를 작성했어요. 기존 후기를 수정해 주세요.") from error
         return self._item(review, user.nickname, user.id)
 
     # 본인 후기만 수정·삭제할 수 있음(남의 후기는 존재 여부도 드러내지 않도록 404)

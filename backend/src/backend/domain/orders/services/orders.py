@@ -19,7 +19,8 @@ from backend.domain.orders.services import toss
 from backend.domain.products.models.products import Product, ProductCategory
 from backend.domain.products.services.storage import product_storage
 from backend.domain.users.models.users import User
-from backend.domain.users.services.users import UserService, api_error
+from backend.core.errors import api_error
+from backend.domain.users.services.users import UserService
 
 STATUS_PENDING = "pending"
 STATUS_PAID = "paid"
@@ -164,44 +165,53 @@ class OrderService:
         await self.db.commit()
         return await self._order_payload(order)
 
-    async def _items(self, order_id: int) -> list[OrderItem]:
-        return list((await self.db.execute(select(OrderItem).where(OrderItem.order_id == order_id).order_by(OrderItem.id))).scalars())
-
-    # 주문 화면용 직렬화
-    async def _order_payload(self, order: Order) -> dict:
-        items = await self._items(order.id)
-        return {
-            "order_id": order.order_number,
-            "status": order.status,
-            "order_name": order.order_name,
-            "total_amount": order.total_amount,
-            "payment_method": order.payment_method,
-            "paid_at": order.paid_at.isoformat() if order.paid_at else None,
-            "delivery_status": order.delivery_status,
-            "shipped_at": order.shipped_at.isoformat() if order.shipped_at else None,
-            "delivered_at": order.delivered_at.isoformat() if order.delivered_at else None,
-            "shipping": {
-                "recipient_name": order.recipient_name,
-                "recipient_phone": order.recipient_phone,
-                "postcode": order.postcode,
-                "address": order.address,
-                "address_detail": order.address_detail,
-                "delivery_memo": order.delivery_memo,
-            }
-            if order.address
-            else None,
-            "created_at": order.created_at.isoformat() if order.created_at else None,
-            "items": [
-                {
-                    "product_id": item.product_id,
-                    "name": item.product_name,
-                    "image_url": item.image_url,
-                    "unit_price": item.unit_price,
-                    "quantity": item.quantity,
+    # 주문 화면용 직렬화(주문 상품은 한 번의 쿼리로 모아 조회해 주문 수만큼 쿼리가 늘어나지 않게 함)
+    async def _order_payloads(self, orders: list[Order]) -> list[dict]:
+        items_by_order: dict[int, list[OrderItem]] = {order.id: [] for order in orders}
+        if orders:
+            rows = (
+                await self.db.execute(select(OrderItem).where(OrderItem.order_id.in_(items_by_order)).order_by(OrderItem.id))
+            ).scalars()
+            for item in rows:
+                items_by_order[item.order_id].append(item)
+        return [
+            {
+                "order_id": order.order_number,
+                "status": order.status,
+                "order_name": order.order_name,
+                "total_amount": order.total_amount,
+                "payment_method": order.payment_method,
+                "paid_at": order.paid_at.isoformat() if order.paid_at else None,
+                "created_at": order.created_at.isoformat() if order.created_at else None,
+                "delivery_status": order.delivery_status,
+                "shipped_at": order.shipped_at.isoformat() if order.shipped_at else None,
+                "delivered_at": order.delivered_at.isoformat() if order.delivered_at else None,
+                "shipping": {
+                    "recipient_name": order.recipient_name,
+                    "recipient_phone": order.recipient_phone,
+                    "postcode": order.postcode,
+                    "address": order.address,
+                    "address_detail": order.address_detail,
+                    "delivery_memo": order.delivery_memo,
                 }
-                for item in items
-            ],
-        }
+                if order.address
+                else None,
+                "items": [
+                    {
+                        "product_id": item.product_id,
+                        "name": item.product_name,
+                        "image_url": item.image_url,
+                        "unit_price": item.unit_price,
+                        "quantity": item.quantity,
+                    }
+                    for item in items_by_order[order.id]
+                ],
+            }
+            for order in orders
+        ]
+
+    async def _order_payload(self, order: Order) -> dict:
+        return (await self._order_payloads([order]))[0]
 
     # 결제가 완료된 내 주문을 최신순으로 반환
     async def list_orders(self, token: str) -> dict:
@@ -211,7 +221,7 @@ class OrderService:
                 select(Order).where(Order.user_id == user.id, Order.status == STATUS_PAID).order_by(Order.paid_at.desc(), Order.id.desc()).limit(50)
             )
         ).scalars().all()
-        return {"orders": [await self._order_payload(order) for order in orders]}
+        return {"orders": await self._order_payloads(list(orders))}
 
     # 관리자용 결제 완료 주문 목록(배송 상태 필터, 구매자 닉네임 포함)
     async def admin_list(self, admin_token: str, delivery_status: str | None, page: int, page_size: int) -> dict:
@@ -230,7 +240,8 @@ class OrderService:
                 .offset((page - 1) * page_size)
             )
         ).all()
-        orders = [{**await self._order_payload(order), "buyer": nickname or "탈퇴한 회원"} for order, nickname in rows]
+        payloads = await self._order_payloads([order for order, _ in rows])
+        orders = [{**payload, "buyer": nickname or "탈퇴한 회원"} for payload, (_, nickname) in zip(payloads, rows)]
         return {"orders": orders, "total": total, "page": page}
 
     # 배송 상태를 한 단계씩만 앞으로 변경(건너뛰기·되돌리기 불가)

@@ -1,17 +1,19 @@
 // 고객이 공개 상품 상세내용과 관련 상품을 조회하는 페이지
 
 import { useCallback, useEffect, useState } from 'react'
+import WishlistLoginModal from '../components/common/wishlist-login-modal.jsx'
 import { saveCheckoutDraft } from '../features/checkout/checkout.js'
 import { addToCart, MAX_QUANTITY, toggleWishlist, useShopping } from '../features/cart/shopping-store.js'
 import { getStoredUser } from '../api/user-auth.js'
 import ProductCard from '../components/products/product-card.jsx'
 import ProductInquiries from '../features/product-feedback/product-inquiries.jsx'
 import ProductReviews from '../features/product-feedback/product-reviews.jsx'
-import { DELIVERY_NOTICE, REFUND_NOTICE, TEST_SITE_NOTICE } from '../config/shop-policy.js'
+import { DELIVERY_NOTICE, DELIVERY_SUMMARY, REFUND_NOTICE, TEST_SITE_NOTICE } from '../config/shop-policy.js'
 import { getCatalogProduct } from '../api/products.js'
 import CatalogFooter from '../components/products/catalog-footer.jsx'
 import CatalogHeader from '../components/products/catalog-header.jsx'
 import { CHECKOUT_PATH, CUSTOMER_PRODUCT_DETAIL_PREFIX, getCustomerProductDetailPath, getLoginPath } from '../config/routes.js'
+import { HeartIcon } from '../components/common/icons.jsx'
 
 const DETAIL_TABS = [
   { id: 'product-description', label: '상품설명' },
@@ -30,6 +32,7 @@ function ProductDetailPage({ onNavigate }) {
   const [quantity, setQuantity] = useState(1)
   const [reviewSummary, setReviewSummary] = useState(null) // 후기 구역이 불러온 평균·개수(상단 별점과 탭에 사용)
   const [activeTab, setActiveTab] = useState(DETAIL_TABS[0].id)
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false) // 비로그인 찜하기 안내 모달
   const { wishlistItems } = useShopping()
   const isWished = wishlistItems.some((item) => item.id === productId)
 
@@ -39,8 +42,18 @@ function ProductDetailPage({ onNavigate }) {
       onNavigate(getLoginPath(`${window.location.pathname}${window.location.search}`))
       return
     }
-    saveCheckoutDraft({ items: [{ ...product, quantity }], fromCart: false })
+    // 상세 본문(detail_html) 등 큰 값은 빼고 주문서에 필요한 필드만 보관
+    saveCheckoutDraft({ items: [{ id: product.id, name: product.name, price: product.price, image_url: product.image_url, quantity }], fromCart: false })
     onNavigate(CHECKOUT_PATH)
+  }
+
+  // 찜하기: 비로그인이면 안내 모달을 띄우고 확인 시 로그인 페이지로 이동
+  function handleWishlist() {
+    if (!getStoredUser()) {
+      setIsLoginModalOpen(true)
+      return
+    }
+    toggleWishlist(product)
   }
 
   const handleSummaryChange = useCallback((summary) => setReviewSummary(summary), [])
@@ -100,14 +113,6 @@ function ProductDetailPage({ onNavigate }) {
       <a className="catalog-skip-link" href="#catalog-main">본문 바로가기</a>
       <CatalogHeader onNavigate={onNavigate} />
       <main id="catalog-main" className="catalog-detail-shell" tabIndex="-1">
-        <nav className="catalog-breadcrumb" aria-label="현재 위치">
-          <ol>
-            <li><button type="button" onClick={() => onNavigate('/')}>홈</button></li>
-            <li><span aria-hidden="true">/</span>{product.category}</li>
-            <li><span aria-hidden="true">/</span><strong aria-current="page">{product.name}</strong></li>
-          </ol>
-        </nav>
-
         <article className="catalog-detail" aria-labelledby="product-title">
           <div className="catalog-detail__image">
             {product.image_url ? <img src={product.image_url} alt={product.image_description || product.name} /> : <span>NO IMAGE</span>}
@@ -138,24 +143,40 @@ function ProductDetailPage({ onNavigate }) {
                 )}
               </div>
             )}
-            <div className="catalog-detail__price">
-              <span>판매가</span>
-              <strong>{product.price.toLocaleString('ko-KR')}<small>원</small></strong>
-            </div>
+            <p className="detail-price"><strong>{product.price.toLocaleString('ko-KR')}</strong><span>원</span></p>
+            <p className="detail-shipping-fee">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h11v9H3zM14 9h4l3 3v3h-7M7 18.5a1.5 1.5 0 1 0 0-.01M17 18.5a1.5 1.5 0 1 0 0-.01" /></svg>
+              배송비 무료
+            </p>
 
-            <div className="catalog-purchase">
-              <div className="catalog-purchase__row">
-                <span id="quantity-label">수량</span>
-                <div className="catalog-quantity" role="group" aria-labelledby="quantity-label">
-                  <button type="button" aria-label="수량 줄이기" disabled={quantity <= 1} onClick={() => setQuantity((current) => Math.max(1, current - 1))}>−</button>
-                  <output aria-live="polite">{quantity}</output>
-                  <button type="button" aria-label="수량 늘리기" disabled={quantity >= MAX_QUANTITY} onClick={() => setQuantity((current) => Math.min(MAX_QUANTITY, current + 1))}>+</button>
-                </div>
+            <dl className="detail-info">
+              <div>
+                <dt>배송</dt>
+                <dd>
+                  <strong>{DELIVERY_SUMMARY.headline}</strong>
+                  <span>{DELIVERY_SUMMARY.detail}</span>
+                  <button type="button" onClick={() => scrollToSection('product-information')}>자세히 보기 ›</button>
+                </dd>
               </div>
-              <div className="catalog-purchase__total">
-                <span>총 상품금액</span>
-                <strong>{(product.price * quantity).toLocaleString('ko-KR')}<small>원</small></strong>
+              <div>
+                <dt>판매자</dt>
+                <dd>아람 마켓</dd>
               </div>
+              <div>
+                <dt id="quantity-label">수량</dt>
+                <dd>
+                  <div className="catalog-quantity" role="group" aria-labelledby="quantity-label">
+                    <button type="button" aria-label="수량 줄이기" disabled={quantity <= 1} onClick={() => setQuantity((current) => Math.max(1, current - 1))}>−</button>
+                    <output aria-live="polite">{quantity}</output>
+                    <button type="button" aria-label="수량 늘리기" disabled={quantity >= MAX_QUANTITY} onClick={() => setQuantity((current) => Math.min(MAX_QUANTITY, current + 1))}>+</button>
+                  </div>
+                </dd>
+              </div>
+            </dl>
+
+            <div className="detail-total">
+              <span>총 상품금액</span>
+              <strong>{(product.price * quantity).toLocaleString('ko-KR')}<small>원</small></strong>
             </div>
 
             <div className="catalog-detail__actions">
@@ -164,11 +185,9 @@ function ProductDetailPage({ onNavigate }) {
                 type="button"
                 aria-pressed={isWished}
                 aria-label={isWished ? '찜 해제' : '찜하기'}
-                onClick={() => toggleWishlist(product)}
+                onClick={handleWishlist}
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2Z" />
-                </svg>
+                <HeartIcon />
               </button>
               <button className="catalog-detail__cart" type="button" onClick={() => addToCart(product, quantity)}>장바구니</button>
               <button className="catalog-detail__buy" type="button" onClick={handleBuyNow}>구매하기</button>
@@ -245,6 +264,14 @@ function ProductDetailPage({ onNavigate }) {
           </section>
         )}
       </main>
+      <WishlistLoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+        onConfirm={() => {
+          setIsLoginModalOpen(false)
+          onNavigate(getLoginPath(`${window.location.pathname}${window.location.search}`))
+        }}
+      />
       <CatalogFooter />
     </div>
   )

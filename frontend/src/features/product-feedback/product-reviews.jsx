@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { createReview, deleteReview, getReviewEligibility, getReviews, updateReview } from '../../api/reviews.js'
 import { getStoredUser } from '../../api/user-auth.js'
 import { getLoginPath } from '../../config/routes.js'
+import { StarIcon } from '../../components/common/icons.jsx'
 
 const PAGE_SIZE = 5
 
@@ -129,7 +130,7 @@ function ProductReviews({ productId, onNavigate, onSummaryChange }) {
             <div className="feedback-form__rating" role="radiogroup" aria-label="별점 선택">
               {[1, 2, 3, 4, 5].map((star) => (
                 <button key={star} type="button" role="radio" aria-checked={form.rating === star} aria-label={`${star}점`} className={star <= form.rating ? 'is-filled' : ''} onClick={() => setForm((current) => ({ ...current, rating: star }))}>
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2.8 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.6l-5.8 3.1 1.1-6.5-4.7-4.6 6.5-.9L12 2.8Z" /></svg>
+                  <StarIcon />
                 </button>
               ))}
             </div>

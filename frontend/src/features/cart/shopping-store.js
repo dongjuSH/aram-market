@@ -4,7 +4,7 @@ import { useSyncExternalStore } from 'react'
 import { addCartItem, getCart, mergeCart, removeCartItems, setCartItemQuantity } from '../../api/cart.js'
 import { getStoredUser, USER_AUTH_CHANGE_EVENT } from '../../api/user-auth.js'
 import { addWishlistItem, getWishlist, removeWishlistItem } from '../../api/wishlist.js'
-import { CART_PATH, getLoginPath } from '../../config/routes.js'
+import { CART_PATH, WISHLIST_PATH } from '../../config/routes.js'
 import { clearCheckoutDraft } from '../checkout/checkout.js'
 
 export const MAX_QUANTITY = 99
@@ -132,20 +132,14 @@ export async function removeFromCart(productIds) {
   setState({ items: state.items.filter((item) => !removeIds.has(item.id)) })
 }
 
-// 찜하기·해제: 로그인 고객만 가능하고, 비로그인이면 로그인 안내와 로그인 이동 버튼을 띄움
+// 찜하기·해제(로그인 고객 전용: 비로그인 안내는 호출하는 화면이 모달로 처리)
 export async function toggleWishlist(product) {
-  if (!getStoredUser()) {
-    showToast('찜하기는 로그인 후 이용할 수 있어요.', 'info', {
-      label: '로그인',
-      path: getLoginPath(`${window.location.pathname}${window.location.search}`),
-    })
-    return
-  }
+  if (!getStoredUser()) return
   const isWished = state.wishlistItems.some((item) => item.id === product.id)
   try {
     const result = isWished ? await removeWishlistItem(product.id) : await addWishlistItem(product.id)
     setState({ wishlistItems: result.items })
-    if (!isWished) showToast('찜한 상품에 담았습니다. 마이 페이지에서 확인할 수 있어요.', 'info', { label: '찜 목록 보기', path: '/user' })
+    if (!isWished) showToast('찜한 상품에 담았습니다.', 'info', { label: '찜 목록 보기', path: WISHLIST_PATH })
   } catch (error) {
     showToast(error.message, 'error')
   }

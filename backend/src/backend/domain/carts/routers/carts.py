@@ -1,25 +1,17 @@
 # 로그인 고객 장바구니 HTTP 엔드포인트
 
-from fastapi import APIRouter, Cookie, Depends, Path, status
+from fastapi import APIRouter, Depends, Path, status
 
+from backend.core.dependencies import require_user_token
 from backend.domain.carts.schemas.carts import CartAddRequest, CartMergeRequest, CartQuantityRequest, CartRemoveRequest
 from backend.domain.carts.services.carts import CartService
-from backend.domain.users.services.users import api_error
 
 router = APIRouter(prefix="/cart", tags=["cart"])  # main.py에서 공통 /api 접두사 적용
-USER_ACCESS_COOKIE = "user_access_token"  # 고객 접근 토큰 쿠키 이름
-
-
-# 장바구니 API 공통 HttpOnly 쿠키 접근 토큰 확인
-def access_token(token: str | None = Cookie(default=None, alias=USER_ACCESS_COOKIE)) -> str:
-    if not token:
-        raise api_error(status.HTTP_401_UNAUTHORIZED, "MISSING_ACCESS_TOKEN", "로그인이 필요합니다.")
-    return token
 
 
 # 내 장바구니 조회
 @router.get("", status_code=status.HTTP_200_OK)
-async def get_cart(token: str = Depends(access_token), cart_service: CartService = Depends(CartService)):
+async def get_cart(token: str = Depends(require_user_token), cart_service: CartService = Depends(CartService)):
     return await cart_service.get_cart(token)
 
 
@@ -27,7 +19,7 @@ async def get_cart(token: str = Depends(access_token), cart_service: CartService
 @router.post("/items", status_code=status.HTTP_200_OK)
 async def add_cart_item(
     request: CartAddRequest,
-    token: str = Depends(access_token),
+    token: str = Depends(require_user_token),
     cart_service: CartService = Depends(CartService),
 ):
     return await cart_service.add_item(token, request)
@@ -37,7 +29,7 @@ async def add_cart_item(
 @router.delete("/items", status_code=status.HTTP_200_OK)
 async def remove_cart_items(
     request: CartRemoveRequest,
-    token: str = Depends(access_token),
+    token: str = Depends(require_user_token),
     cart_service: CartService = Depends(CartService),
 ):
     return await cart_service.remove_items(token, request)
@@ -48,7 +40,7 @@ async def remove_cart_items(
 async def set_cart_item_quantity(
     request: CartQuantityRequest,
     product_id: int = Path(gt=0),
-    token: str = Depends(access_token),
+    token: str = Depends(require_user_token),
     cart_service: CartService = Depends(CartService),
 ):
     return await cart_service.set_quantity(token, product_id, request.quantity)
@@ -58,7 +50,7 @@ async def set_cart_item_quantity(
 @router.post("/merge", status_code=status.HTTP_200_OK)
 async def merge_cart(
     request: CartMergeRequest,
-    token: str = Depends(access_token),
+    token: str = Depends(require_user_token),
     cart_service: CartService = Depends(CartService),
 ):
     return await cart_service.merge(token, request)

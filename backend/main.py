@@ -37,7 +37,8 @@ from backend.domain.wishlists.models.wishlists import WishlistItem  # noqa: F401
 from backend.domain.wishlists.routers.wishlists import router as wishlist_router
 from backend.domain.carts.models.carts import CartItem  # noqa: F401 - 장바구니 테이블 메타데이터 등록
 from backend.domain.carts.routers.carts import router as cart_router
-from backend.domain.users.models.users import User, UserPolicyConsent, UserRefreshToken  # noqa: F401 - 약관 동의·리프레시 토큰 테이블 메타데이터 등록
+from backend.domain.users.models.users import User, UserAddress, UserPolicyConsent, UserRefreshToken  # noqa: F401 - 약관 동의·리프레시 토큰 테이블 메타데이터 등록
+from backend.domain.users.routers.addresses import router as address_router
 from backend.domain.users.routers.users import router as user_router
 from backend.domain.users.services.users import UserService
 from backend.domain.products.routers.catalog import router as catalog_router
@@ -162,6 +163,7 @@ app.include_router(admin_router, prefix="/api")
 app.include_router(admin_product_router, prefix="/api")
 app.include_router(catalog_router, prefix="/api")
 app.include_router(user_router, prefix="/api")
+app.include_router(address_router, prefix="/api")
 app.include_router(cart_router, prefix="/api")
 app.include_router(wishlist_router, prefix="/api")
 app.include_router(order_router, prefix="/api")

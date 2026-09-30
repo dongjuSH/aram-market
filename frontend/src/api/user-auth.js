@@ -144,3 +144,18 @@ export function resendVerificationEmail(email) {
 export function unlockAccount(token) {
   return request('/api/users/unlock', { body: { token } })
 }
+
+// 닉네임·이름·휴대폰·주소 수정
+export function updateProfile(profile) {
+  return request('/api/users/me/profile', { method: 'PUT', body: profile })
+}
+
+// 이메일 변경 요청(현재 비밀번호 확인 후 새 이메일로 확인 메일 발송)
+export function requestEmailChange({ newEmail, password }) {
+  return request('/api/users/me/email-change', { body: { new_email: newEmail, password } })
+}
+
+// 새 이메일로 받은 확인 링크의 토큰으로 이메일 변경 완료
+export function confirmEmailChange(token) {
+  return request('/api/users/email-change/confirm', { body: { token } })
+}

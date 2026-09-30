@@ -8,6 +8,7 @@ import AdminProductsPage from './pages/admin-products.jsx'
 import ProductDetailPage from './pages/product-detail.jsx'
 import ProductsPage from './pages/products.jsx'
 import CartPage from './features/cart/cart-page.jsx'
+import WishlistPage from './features/wishlist/wishlist-page.jsx'
 import CheckoutPage from './features/checkout/checkout-page.jsx'
 import { PaymentFailPage, PaymentSuccessPage } from './features/checkout/payment-result.jsx'
 import UserLoginPage from './features/user-auth/login.jsx'
@@ -41,12 +42,14 @@ import {
   USER_SUPPORTED_PATHS,
   USER_UNLOCK_PATH,
   USER_VERIFY_EMAIL_PATH,
+  WISHLIST_PATH,
 } from './config/routes.js'
 
 const SUPPORTED_PATHS = new Set([
   CUSTOMER_PRODUCTS_PATH,
   CART_PATH,
   CHECKOUT_PATH,
+  WISHLIST_PATH,
   PAYMENT_SUCCESS_PATH,
   PAYMENT_FAIL_PATH,
   ...USER_SUPPORTED_PATHS,
@@ -68,6 +71,7 @@ function getCurrentRoute() {
   const requiresAdmin = currentPath.startsWith(`${ADMIN_BASE_PATH}/`) && currentPath !== ADMIN_LOGIN_PATH
   if (requiresAdmin && !sessionStorage.getItem('adminCurrentUser')) return ADMIN_LOGIN_PATH
   if (currentPath === USER_MY_PAGE_PATH && !getStoredUser()) return getLoginPath(`${USER_MY_PAGE_PATH}${window.location.search}`)
+  if (currentPath === WISHLIST_PATH && !getStoredUser()) return getLoginPath(WISHLIST_PATH)
   if ((currentPath === PAYMENT_SUCCESS_PATH || currentPath === CHECKOUT_PATH) && !getStoredUser()) return getLoginPath(CART_PATH)
   if ((currentPath === USER_LOGIN_PATH || currentPath === USER_SIGNUP_PATH) && getStoredUser()) {
     return USER_MY_PAGE_PATH
@@ -103,6 +107,7 @@ function App() {
   if (path === CUSTOMER_PRODUCTS_PATH) return <ProductsPage onNavigate={navigate} />
   if (path === PAYMENT_SUCCESS_PATH) return <PaymentSuccessPage onNavigate={navigate} />
   if (path === PAYMENT_FAIL_PATH) return <PaymentFailPage onNavigate={navigate} />
+  if (path === WISHLIST_PATH) return <WishlistPage onNavigate={navigate} />
   if (path === CHECKOUT_PATH) return <CheckoutPage onNavigate={navigate} />
   if (path === CART_PATH) return <CartPage onNavigate={navigate} />
   if (path === USER_LOGIN_PATH) return <UserLoginPage onNavigate={navigate} />

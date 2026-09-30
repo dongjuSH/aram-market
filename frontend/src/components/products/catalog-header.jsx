@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { getStoredUser, signOut } from '../../api/user-auth.js'
+import WishlistLoginModal from '../common/wishlist-login-modal.jsx'
 import { useShopping } from '../../features/cart/shopping-store.js'
-import { CART_PATH, getLoginPath, USER_MY_PAGE_PATH, USER_SIGNUP_PATH } from '../../config/routes.js'
-
-const WISHLIST_PATH = `${USER_MY_PAGE_PATH}?section=wishlist` // 마이 페이지의 찜한 상품 구역
+import { CART_PATH, getLoginPath, USER_MY_PAGE_PATH, USER_SIGNUP_PATH, WISHLIST_PATH } from '../../config/routes.js'
+import { HeartIcon } from '../../components/common/icons.jsx'
 
 // 고객 상품 목록으로 이동 가능한 브랜드 헤더
 function CatalogHeader({ onNavigate, searchValue, onSearchValueChange, onSearch, hideLogin = false }) {
@@ -17,6 +17,7 @@ function CatalogHeader({ onNavigate, searchValue, onSearchValueChange, onSearch,
   // 이미 지난 담기 기록은 화면 이동 시 다시 띄우지 않도록 처음 값을 숨김 처리
   const [hiddenAt, setHiddenAt] = useState(() => toast?.at ?? 0)
   const isToastVisible = Boolean(toast) && toast.at !== hiddenAt
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false) // 비로그인 찜 목록 안내 모달
   const currentPath = `${window.location.pathname}${window.location.search}`
 
   // 상품을 담거나 오류가 나면 잠깐 안내를 띄움
@@ -31,6 +32,12 @@ function CatalogHeader({ onNavigate, searchValue, onSearchValueChange, onSearch,
     window.addEventListener('scroll', handleScroll, { passive: true })
     return () => window.removeEventListener('scroll', handleScroll)
   }, [])
+
+  // 찜 목록: 로그인 고객은 바로 이동, 비로그인은 안내 모달 후 로그인 페이지로 이동
+  const openWishlist = () => {
+    if (isLoggedIn) onNavigate(WISHLIST_PATH)
+    else setIsLoginModalOpen(true)
+  }
 
   // 마이 페이지를 거치지 않고 바로 로그아웃
   const logout = async () => {
@@ -91,10 +98,8 @@ function CatalogHeader({ onNavigate, searchValue, onSearchValueChange, onSearch,
           )}
 
           <div className="catalog-header__actions" role="group" aria-label="고객 메뉴">
-            <button type="button" aria-label="찜 목록" title="찜 목록" onClick={() => onNavigate(isLoggedIn ? WISHLIST_PATH : getLoginPath(WISHLIST_PATH))}>
-              <svg className="catalog-header__menu-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2Z" />
-              </svg>
+            <button type="button" aria-label="찜 목록" title="찜 목록" onClick={openWishlist}>
+              <HeartIcon className="catalog-header__menu-icon" />
             </button>
             <button className="catalog-header__cart" type="button" aria-label={`장바구니, 담긴 상품 ${cartCount}개`} title="장바구니" onClick={() => onNavigate(CART_PATH)}>
               <svg className="catalog-header__menu-icon catalog-header__cart-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -127,6 +132,14 @@ function CatalogHeader({ onNavigate, searchValue, onSearchValueChange, onSearch,
           </div>
         )}
       </header>
+      <WishlistLoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+        onConfirm={() => {
+          setIsLoginModalOpen(false)
+          onNavigate(getLoginPath(WISHLIST_PATH)) // 로그인 후 찜 페이지로 이동
+        }}
+      />
     </>
   )
 }

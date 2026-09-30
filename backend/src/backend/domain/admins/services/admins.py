@@ -8,6 +8,7 @@ from fastapi import Depends, HTTPException, status
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.core.errors import api_error
 from backend.core.config import settings
 from backend.core.database import get_db
 from backend.core.security import (
@@ -25,11 +26,6 @@ from backend.domain.admins.services.rate_limit import LoginRateLimiter, admin_lo
 
 logger = logging.getLogger(__name__)  # 비밀번호를 제외한 관리자 인증 이상 징후 기록
 DUMMY_PASSWORD_HASH = hash_password("Dummy!Password1")  # 아이디 존재 여부 응답시간 차이 완화용 해시
-
-
-# 프런트 오류 구분용 공통 오류 형식 생성
-def api_error(status_code: int, code: str, message: str, **metadata) -> HTTPException:
-    return HTTPException(status_code=status_code, detail={"code": code, "message": message, **metadata})
 
 
 # 계정 존재 여부와 IP별 실패 횟수를 노출하지 않는 공통 로그인 실패 오류
