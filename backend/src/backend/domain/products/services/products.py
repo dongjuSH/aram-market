@@ -14,6 +14,7 @@ from backend.core.database import get_db
 from backend.domain.products.models.products import Product, ProductAuditLog, ProductCategory, ProductRelation
 from backend.domain.products.schemas.products import EditorImageUploadRequest, ProductCreateRequest, ProductUpdateRequest, ProductWriteRequest
 from backend.domain.products.services.storage import product_storage
+from backend.domain.reviews.models.reviews import ProductReview
 from backend.core.errors import api_error
 
 
@@ -136,7 +137,7 @@ class ProductService:
         )
         rows = (await self.db.execute(query)).all()
         return {
-            "items": [self._catalog_list_item(product, category_name) for product, category_name in rows],
+            "items": await self._with_review_stats([self._catalog_list_item(product, category_name) for product, category_name in rows]),
             "total": total,
             "page": page,
             "page_size": page_size,
@@ -156,6 +157,10 @@ class ProductService:
         )
         row = (await self.db.execute(query)).one_or_none()
         if not row:
+            # 주문 내역 등에서 들어온 판매 종료(삭제·비노출·카테고리 비활성) 상품은 없는 번호와 구분해 안내
+            exists = (await self.db.execute(select(Product.id).where(Product.id == product_id))).scalar_one_or_none()
+            if exists is not None:
+                raise api_error(status.HTTP_404_NOT_FOUND, "PRODUCT_NOT_ON_SALE", "판매가 종료된 상품입니다.")
             raise api_error(status.HTTP_404_NOT_FOUND, "PRODUCT_NOT_FOUND", "상품을 찾을 수 없습니다.")
         product, category_name = row
         related_ids = await self._relation_ids(product.id)
@@ -173,7 +178,7 @@ class ProductService:
                 .order_by(Product.display_order, Product.id)
             )
             related_rows = (await self.db.execute(related_query)).all()
-            related_items = [self._catalog_list_item(item, category) for item, category in related_rows]
+            related_items = await self._with_review_stats([self._catalog_list_item(item, category) for item, category in related_rows])
         return {"product": self._catalog_detail_item(product, category_name, related_items)}
 
     # 등록·수정 화면에서 선택한 카테고리의 관련 상품 후보 반환
@@ -714,6 +719,22 @@ class ProductService:
             "created_at": korea_iso(product.created_at),
             "updated_at": korea_iso(product.updated_at),
         }
+
+    # 카드에 보일 후기 평균·개수를 상품 묶음 단위로 한 번에 조회해 각 항목에 덧붙임
+    async def _with_review_stats(self, items: list[dict]) -> list[dict]:
+        if not items:
+            return items
+        rows = (
+            await self.db.execute(
+                select(ProductReview.product_id, func.count(), func.avg(ProductReview.rating))
+                .where(ProductReview.product_id.in_([item["id"] for item in items]))
+                .group_by(ProductReview.product_id)
+            )
+        ).all()
+        stats = {product_id: (count, round(float(average), 1)) for product_id, count, average in rows}
+        for item in items:
+            item["review_count"], item["review_average"] = stats.get(item["id"], (0, None))
+        return items
 
     # 고객 목록에 필요한 공개 필드만 직렬화
     @staticmethod

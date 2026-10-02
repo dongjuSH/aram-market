@@ -1,6 +1,6 @@
 # 로그인 고객 찜 목록 조회·추가·해제 비즈니스 규칙
 
-from fastapi import Depends, status
+from fastapi import Depends
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession

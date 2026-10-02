@@ -30,7 +30,7 @@ def issue_login_cookies(response: Response, result: dict) -> dict:
         response,
         ADMIN_REFRESH_COOKIE,
         result.pop("refresh_token"),
-        max_age=settings.admin_refresh_token_expire_hours * 60 * 60,
+        session_only=True,  # 브라우저를 닫으면 로그인 해제(서버의 최대 유지시간은 ADMIN_REFRESH_TOKEN_EXPIRE_HOURS)
         path=ADMIN_REFRESH_COOKIE_PATH,
     )
     result.pop("token_type", None)

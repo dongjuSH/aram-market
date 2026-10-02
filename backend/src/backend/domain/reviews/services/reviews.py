@@ -1,9 +1,9 @@
-# 상품 후기 조회·작성·수정·삭제 규칙(후기는 해당 상품을 결제 완료한 고객만 작성)
+# 상품 후기 조회·작성·수정·삭제 규칙(후기는 해당 상품 주문이 배송완료된 고객만 작성)
 
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, status
-from sqlalchemy import delete, exists, func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,22 +39,18 @@ class ReviewService:
         except Exception:
             return None
 
-    # 결제 완료 주문에 이 상품이 있는 고객인지 확인
-    async def _has_purchased(self, user_id: int, product_id: int) -> bool:
-        return bool(
-            (
-                await self.db.execute(
-                    select(
-                        exists().where(
-                            Order.user_id == user_id,
-                            Order.status == "paid",
-                            OrderItem.order_id == Order.id,
-                            OrderItem.product_id == product_id,
-                        )
-                    )
+    # 이 상품의 결제 완료 주문 중 배송완료가 있는지: 주문 없음 None, 배송 전 False, 배송완료 True
+    async def _delivered_purchase(self, user_id: int, product_id: int) -> bool | None:
+        return (
+            await self.db.execute(
+                select(func.bool_or(Order.delivery_status == "delivered")).where(
+                    Order.user_id == user_id,
+                    Order.status == "paid",
+                    OrderItem.order_id == Order.id,
+                    OrderItem.product_id == product_id,
                 )
-            ).scalar()
-        )
+            )
+        ).scalar()
 
     async def _existing_review(self, user_id: int, product_id: int) -> ProductReview | None:
         return (
@@ -114,14 +110,18 @@ class ReviewService:
         existing = await self._existing_review(user_id, product_id)
         if existing:
             return {"can_review": False, "reason": "already_reviewed", "review_id": existing.id, "rating": existing.rating, "content": existing.content}
-        purchased = await self._has_purchased(user_id, product_id)
-        return {"can_review": purchased, "reason": "ok" if purchased else "not_purchased", "review_id": None}
+        delivered = await self._delivered_purchase(user_id, product_id)
+        reason = "ok" if delivered else "not_delivered" if delivered is False else "not_purchased"
+        return {"can_review": bool(delivered), "reason": reason, "review_id": None}
 
     async def create_review(self, product_id: int, token: str, request: ReviewRequest) -> dict:
         user = await self.user_service._get_user_from_access_token(token)
         await require_available_product(self.db, product_id)
-        if not await self._has_purchased(user.id, product_id):
+        delivered = await self._delivered_purchase(user.id, product_id)
+        if delivered is None:
             raise api_error(status.HTTP_403_FORBIDDEN, "REVIEW_NOT_PURCHASED", "상품을 구매한 고객만 후기를 작성할 수 있어요.")
+        if not delivered:
+            raise api_error(status.HTTP_403_FORBIDDEN, "REVIEW_NOT_DELIVERED", "배송이 완료된 후 후기를 작성할 수 있어요.")
         if await self._existing_review(user.id, product_id):
             raise api_error(status.HTTP_409_CONFLICT, "REVIEW_ALREADY_EXISTS", "이미 이 상품의 후기를 작성했어요. 기존 후기를 수정해 주세요.")
         review = ProductReview(product_id=product_id, user_id=user.id, rating=request.rating, content=request.content)

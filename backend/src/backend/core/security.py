@@ -36,16 +36,10 @@ def hash_password(password: str) -> str:
     return f"pbkdf2_sha256${PBKDF2_ITERATIONS}${_encode(salt)}${_encode(digest)}"
 
 
-# 저장 문자열의 PBKDF2 해시 형식 확인
-def is_password_hash(value: str) -> bool:
-    return value.startswith("pbkdf2_sha256$")
-
-
-# 상수시간 비밀번호 검증 및 기존 평문 값의 첫 성공 로그인 호환
+# 상수시간 PBKDF2 비밀번호 검증(해시 형식이 아닌 저장값은 항상 불일치)
 def verify_password(password: str, stored_value: str) -> bool:
-    if not is_password_hash(stored_value):
-        # 기존 학습용 평문 데이터의 1회성 호환 및 로그인 성공 시 해시 교체
-        return hmac.compare_digest(password, stored_value)
+    if not stored_value.startswith("pbkdf2_sha256$"):
+        return False
 
     try:
         _, iterations, salt, expected = stored_value.split("$", 3)
@@ -108,18 +102,19 @@ def hash_refresh_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-# JS에서 읽을 수 없는 HttpOnly 인증 쿠키 발급(기본은 접근 토큰 수명·/api 경로)
+# JS에서 읽을 수 없는 HttpOnly 인증 쿠키 발급(기본은 접근 토큰 수명·/api 경로, session_only면 브라우저 종료 시 삭제되는 세션 쿠키)
 def set_auth_cookie(
     response: Response,
     name: str,
     token: str,
     max_age: int | None = None,
     path: str = "/api",
+    session_only: bool = False,
 ) -> None:
     response.set_cookie(
         name,
         token,
-        max_age=max_age if max_age is not None else settings.access_token_expire_minutes * 60,
+        max_age=None if session_only else (max_age if max_age is not None else settings.access_token_expire_minutes * 60),
         path=path,
         httponly=True,
         secure=settings.auth_cookie_secure,

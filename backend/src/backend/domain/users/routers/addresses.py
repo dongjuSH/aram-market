@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Path, status
 from backend.core.dependencies import require_user_token
 from backend.domain.users.schemas.users import AddressRequest
 from backend.domain.users.services.addresses import AddressService
+from backend.core.validators import MAX_DB_ID
 
 router = APIRouter(prefix="/users/me/addresses", tags=["addresses"])  # main.py에서 공통 /api 접두사 적용
 
@@ -29,7 +30,7 @@ async def create_address(
 @router.put("/{address_id}", status_code=status.HTTP_200_OK)
 async def update_address(
     request: AddressRequest,
-    address_id: int = Path(gt=0),
+    address_id: int = Path(gt=0, le=MAX_DB_ID),
     token: str = Depends(require_user_token),
     service: AddressService = Depends(AddressService),
 ):
@@ -39,7 +40,7 @@ async def update_address(
 # 기본 배송지로 지정
 @router.put("/{address_id}/default", status_code=status.HTTP_200_OK)
 async def set_default_address(
-    address_id: int = Path(gt=0),
+    address_id: int = Path(gt=0, le=MAX_DB_ID),
     token: str = Depends(require_user_token),
     service: AddressService = Depends(AddressService),
 ):
@@ -49,7 +50,7 @@ async def set_default_address(
 # 배송지 삭제
 @router.delete("/{address_id}", status_code=status.HTTP_200_OK)
 async def delete_address(
-    address_id: int = Path(gt=0),
+    address_id: int = Path(gt=0, le=MAX_DB_ID),
     token: str = Depends(require_user_token),
     service: AddressService = Depends(AddressService),
 ):

@@ -1,7 +1,7 @@
 # 관리자·사용자 인증 토큰 분리와 IP 로그인 제한 규칙 테스트
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from string import Template
 
@@ -400,6 +400,10 @@ class EmailVerificationAndPolicyTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("httponly", header)
         self.assertIn("samesite=lax", header)
         self.assertIn("path=/api", header)
+
+        session_response = Response()
+        set_auth_cookie(session_response, "user_refresh_token", "token-value", session_only=True)
+        self.assertNotIn("max-age", session_response.headers["set-cookie"].lower())
 
         cleared = Response()
         clear_auth_cookie(cleared, "user_access_token")
@@ -840,11 +844,49 @@ class FeedbackRulesTests(unittest.TestCase):
         self.assertEqual(owner["content"], "개인 사정이 담긴 문의")
         self.assertEqual(owner["answer"], "비공개 답변")
 
+    def test_admin_inquiry_search_escapes_like_wildcards(self):
+        from sqlalchemy.dialects import postgresql
+
+        from backend.domain.inquiries.services.inquiries import admin_search_condition, escape_like
+
+        self.assertEqual(escape_like("50%_할인\\"), "50\\%\\_할인\\\\")
+        self.assertEqual(str(admin_search_condition("   ").compile(dialect=postgresql.dialect())), "true")
+        compiled = admin_search_condition(" 배송 ").compile(dialect=postgresql.dialect())
+        self.assertIn("product_inquiries.content ILIKE", str(compiled))
+        self.assertIn("products.name ILIKE", str(compiled))
+        self.assertIn("users.nickname ILIKE", str(compiled))
+        self.assertEqual(set(compiled.params.values()), {"%배송%"})
+
+    def test_admin_inquiry_list_accepts_only_known_status(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from backend.core.dependencies import require_admin_token
+        from backend.domain.inquiries.routers.inquiries import router
+        from backend.domain.inquiries.services.inquiries import InquiryService
+
+        calls = []
+
+        class FakeService:
+            async def admin_list(self, token, inquiry_status, keyword, page, page_size):
+                calls.append((inquiry_status, keyword, page, page_size))
+                return {"items": [], "total": 0, "counts": {"pending": 0, "answered": 0}, "page": page}
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api")
+        app.dependency_overrides[require_admin_token] = lambda: "token"
+        app.dependency_overrides[InquiryService] = FakeService
+        client = TestClient(app)
+        self.assertEqual(client.get("/api/admin/inquiries").status_code, 200)
+        self.assertEqual(client.get("/api/admin/inquiries?status=answered&q=배송&page=2").status_code, 200)
+        self.assertEqual(calls, [("pending", "", 1, 20), ("answered", "배송", 2, 20)])
+        self.assertEqual(client.get("/api/admin/inquiries?status=all").status_code, 422)
+
 
 # 배송지 입력 검증과 배송 상태 진행 순서 검증
 class ShippingRulesTests(unittest.TestCase):
     def valid(self, **overrides):
-        values = dict(recipient_name="홍길동", recipient_phone="01012345678", address="서울특별시 마포구 아람로 12")
+        values = dict(recipient_name="홍길동", recipient_phone="01012345678", postcode="04001", address="서울특별시 마포구 아람로 12", address_detail="101동 1001호")
         values.update(overrides)
         return values
 
@@ -859,9 +901,16 @@ class ShippingRulesTests(unittest.TestCase):
 
         from backend.domain.orders.schemas.orders import ShippingAddress
 
-        for invalid in ({"recipient_phone": "123"}, {"recipient_name": "김"}, {"address": "서울"}):
+        for invalid in ({"recipient_phone": "123"}, {"recipient_name": "김"}, {"address": "서울"}, {"postcode": ""}, {"postcode": "1234"}, {"address_detail": " "}):
             with self.assertRaises(ValidationError):
                 ShippingAddress(**self.valid(**invalid))
+
+    def test_no_address_detail_allows_empty_detail(self):
+        from backend.domain.orders.schemas.orders import ShippingAddress
+
+        self.assertEqual(ShippingAddress(**self.valid(address_detail="", no_address_detail=True)).address_detail, "")
+        # 없음을 고르면 함께 보낸 상세 주소는 무시
+        self.assertEqual(ShippingAddress(**self.valid(no_address_detail=True)).address_detail, "")
 
     def test_order_creation_requires_shipping_and_delivery_status_is_limited(self):
         from pydantic import ValidationError
@@ -879,29 +928,112 @@ class ShippingRulesTests(unittest.TestCase):
 
         self.assertEqual(DELIVERY_FLOW, ("paid", "preparing", "shipping", "delivered"))
 
+    def test_order_list_accepts_period_from_query_string(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from backend.core.dependencies import require_user_token
+        from backend.domain.orders.routers.orders import router
+        from backend.domain.orders.services.orders import OrderService
+
+        calls = []
+
+        class StubService:
+            async def list_orders(self, token, months, start_date, end_date, page, page_size):
+                calls.append((months, start_date, end_date, page, page_size))
+                return {"orders": [], "total": 0, "page": page}
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api")
+        app.dependency_overrides[require_user_token] = lambda: "token"
+        app.dependency_overrides[OrderService] = StubService
+        client = TestClient(app)
+        # 주소의 문자열 "3"이 정수로 변환돼 서비스까지 전달되어야 함(Literal 선언 시 422로 거부되던 문제)
+        self.assertEqual(client.get("/api/orders?months=3&page=2&page_size=5").status_code, 200)
+        self.assertEqual(client.get("/api/orders").status_code, 200)
+        self.assertEqual(client.get("/api/orders?from=2025-01-01&to=2025-06-30").status_code, 200)
+        self.assertEqual(
+            calls,
+            [(3, None, None, 2, 5), (None, None, None, 1, 5), (None, date(2025, 1, 1), date(2025, 6, 30), 1, 5)],
+        )
+        self.assertEqual(client.get("/api/orders?page_size=21").status_code, 422)
+        self.assertEqual(client.get("/api/orders?from=2025-13-01&to=2025-06-30").status_code, 422)
+
+    def test_order_date_range_is_limited_to_recent_five_years(self):
+        from backend.domain.orders.services.orders import KOREA_TIMEZONE, order_period_range
+
+        now = datetime(2026, 9, 30, 23, 0, tzinfo=timezone.utc)  # 한국 시간 2026-10-01
+        # 종료일 하루 전체를 포함하도록 다음 날 0시 미만으로 변환
+        self.assertEqual(
+            order_period_range(None, date(2021, 10, 1), date(2026, 10, 1), now),
+            (datetime(2021, 10, 1, tzinfo=KOREA_TIMEZONE), datetime(2026, 10, 2, tzinfo=KOREA_TIMEZONE)),
+        )
+        self.assertEqual(order_period_range(3, None, None, now), (datetime(2026, 7, 1, tzinfo=KOREA_TIMEZONE), None))
+        self.assertEqual(order_period_range(None, None, None, now), (None, None))
+        invalid_cases = [
+            (None, date(2021, 9, 30), date(2026, 1, 1)),  # 5년보다 이전
+            (None, date(2026, 1, 1), date(2026, 10, 2)),  # 미래
+            (None, date(2026, 5, 1), date(2026, 4, 1)),  # 시작일 > 종료일
+            (None, date(2026, 5, 1), None),  # 한쪽만 지정
+            (3, date(2026, 5, 1), date(2026, 6, 1)),  # 기간 버튼과 날짜를 함께 지정
+            (4, None, None),
+        ]
+        for months, start, end in invalid_cases:
+            with self.assertRaises(HTTPException) as caught:
+                order_period_range(months, start, end, now)
+            self.assertEqual(caught.exception.status_code, 422)
+
+    def test_expired_paid_orders_are_purged_after_five_years(self):
+        import asyncio
+
+        from backend.domain.orders.services.orders import KOREA_TIMEZONE, OrderService
+
+        captured = []
+
+        class FakeDb:
+            async def execute(self, statement):
+                captured.append(statement)
+                return type("Result", (), {"rowcount": 2})()
+
+        service = OrderService.__new__(OrderService)
+        service.db = FakeDb()
+        now = datetime(2026, 9, 30, 23, 0, tzinfo=timezone.utc)  # 한국 시간 2026-10-01
+        self.assertEqual(asyncio.run(service.purge_expired_orders(now, commit=False)), 2)
+        params = captured[0].compile().params
+        # 결제 완료 주문만, 고객 조회 가능 범위(5년 전 같은 날 0시)보다 이전 결제를 삭제
+        self.assertIn("paid", params.values())
+        self.assertIn(datetime(2021, 10, 1, tzinfo=KOREA_TIMEZONE), params.values())
+
+    def test_order_period_starts_at_korean_midnight_months_ago(self):
+        from backend.domain.orders.services.orders import KOREA_TIMEZONE, months_ago_start
+
+        # 한국 시간 2026-10-01 08:00(UTC 전날 23:00) 기준 3개월 전은 7월 1일 0시
+        now = datetime(2026, 9, 30, 23, 0, tzinfo=timezone.utc)
+        self.assertEqual(months_ago_start(3, now), datetime(2026, 7, 1, tzinfo=KOREA_TIMEZONE))
+        self.assertEqual(months_ago_start(12, now), datetime(2025, 10, 1, tzinfo=KOREA_TIMEZONE))
+        # 같은 날이 없는 달은 말일로 맞추고 해를 넘겨 계산
+        self.assertEqual(months_ago_start(3, datetime(2026, 5, 31, 3, tzinfo=timezone.utc)), datetime(2026, 2, 28, tzinfo=KOREA_TIMEZONE))
+        self.assertEqual(months_ago_start(6, datetime(2026, 2, 15, 3, tzinfo=timezone.utc)), datetime(2025, 8, 15, tzinfo=KOREA_TIMEZONE))
+
 
 # 회원정보 수정·이메일 변경 입력 검증
 class ProfileRulesTests(unittest.TestCase):
-    def valid(self, **overrides):
-        values = dict(nickname="아람이", name="홍길동", phone="010-1234-5678")
-        values.update(overrides)
-        return values
-
-    def test_profile_normalizes_name_and_phone(self):
+    def test_profile_accepts_only_nickname(self):
+        from backend.domain.users.models.users import User
         from backend.domain.users.schemas.users import UpdateProfileRequest
 
-        request = UpdateProfileRequest(**self.valid(phone="01012345678"))
-        self.assertEqual(request.phone, "010-1234-5678")
-        self.assertEqual(request.nickname, "아람이")
+        request = UpdateProfileRequest(nickname=" 아람이 ", name="홍길동", phone="010-1234-5678")
+        self.assertEqual(request.model_dump(), {"nickname": "아람이"})  # 이름·휴대폰은 받지 않음(주소록에서 관리)
+        self.assertFalse({"name", "phone"} & set(User.__table__.columns.keys()))
 
-    def test_profile_rejects_bad_nickname_phone_and_name(self):
+    def test_profile_rejects_bad_nickname(self):
         from pydantic import ValidationError
 
         from backend.domain.users.schemas.users import UpdateProfileRequest
 
-        for invalid in ({"nickname": "a"}, {"phone": "123"}, {"name": "김"}):
+        for invalid in ("a", "닉네임이열한글자입니다다", "공 백"):
             with self.assertRaises(ValidationError):
-                UpdateProfileRequest(**self.valid(**invalid))
+                UpdateProfileRequest(nickname=invalid)
 
     def test_email_change_request_normalizes_email(self):
         from backend.domain.users.schemas.users import EmailChangeRequest
@@ -918,7 +1050,7 @@ class ProfileRulesTests(unittest.TestCase):
 # 주소록 입력 검증과 주문 배송지가 같은 공통 검증을 쓰는지 확인
 class AddressBookRulesTests(unittest.TestCase):
     def valid(self, **overrides):
-        values = dict(label=" 집 ", recipient_name="홍길동", recipient_phone="01012345678", address="서울특별시 마포구 아람로 12")
+        values = dict(label=" 집 ", recipient_name="홍길동", recipient_phone="01012345678", postcode="04001", address="서울특별시 마포구 아람로 12", address_detail="101동 1001호")
         values.update(overrides)
         return values
 
@@ -933,7 +1065,7 @@ class AddressBookRulesTests(unittest.TestCase):
 
         from backend.domain.users.schemas.users import AddressRequest
 
-        for invalid in ({"label": "  "}, {"label": "가" * 21}, {"recipient_phone": "123"}, {"recipient_name": "김"}, {"address": "서울"}):
+        for invalid in ({"label": "  "}, {"label": "가" * 21}, {"recipient_phone": "123"}, {"recipient_name": "김"}, {"address": "서울"}, {"postcode": "abcde"}, {"address_detail": ""}):
             with self.assertRaises(ValidationError):
                 AddressRequest(**self.valid(**invalid))
 
@@ -942,7 +1074,7 @@ class AddressBookRulesTests(unittest.TestCase):
 
         from backend.domain.orders.schemas.orders import ShippingAddress
 
-        shipping = ShippingAddress(recipient_name="홍길동", recipient_phone="01012345678", address="서울특별시 마포구 아람로 12", delivery_memo=" 문 앞 ")
+        shipping = ShippingAddress(recipient_name="홍길동", recipient_phone="01012345678", postcode="04001", address="서울특별시 마포구 아람로 12", no_address_detail=True, delivery_memo=" 문 앞 ")
         self.assertEqual((shipping.recipient_phone, shipping.delivery_memo), ("010-1234-5678", "문 앞"))
         with self.assertRaises(ValidationError):
-            ShippingAddress(recipient_name="홍길동", recipient_phone="1", address="서울특별시 마포구 아람로 12")
+            ShippingAddress(recipient_name="홍길동", recipient_phone="1", postcode="04001", address="서울특별시 마포구 아람로 12", no_address_detail=True)

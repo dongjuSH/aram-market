@@ -18,7 +18,6 @@ from backend.core.security import (
     generate_refresh_token,
     hash_password,
     hash_refresh_token,
-    is_password_hash,
     verify_password,
 )
 from backend.domain.users.models.users import User, UserPolicyConsent, UserRefreshToken
@@ -375,8 +374,6 @@ class UserService:
                 recovery_token=recovery_token,
             )
 
-        if not is_password_hash(user.password_hash):
-            user.password_hash = hash_password(request.password)  # 기존 평문은 첫 성공 로그인에서 해시로 교체
         await self.db.commit()
         return await self._login_response(user)
 
@@ -416,7 +413,7 @@ class UserService:
         tokens = await self._issue_tokens(user, str(uuid.uuid4()))
         return {"message": "로그인을 성공하였습니다.", **tokens, "user": self._user_payload(user)}
 
-    # 화면(마이 페이지·주문서 자동 입력)에 필요한 회원정보
+    # 화면(헤더·마이 페이지)에 필요한 회원정보
     def _user_payload(self, user: User) -> dict:
         return {
             "id": user.id,
@@ -424,8 +421,6 @@ class UserService:
             "nickname": user.nickname,
             "email": user.email,
             "marketing_consent": user.marketing_consent,
-            "name": user.name,
-            "phone": user.phone,
         }
 
     # 인증 버전을 담은 접근 토큰 생성과 리프레시 토큰(해시만 저장) 발급
@@ -553,7 +548,7 @@ class UserService:
             "user": self._user_payload(user),
         }
 
-    # 닉네임·이름·휴대폰 수정(닉네임은 중복 불가)
+    # 닉네임 수정(중복 불가)
     async def update_profile(self, token: str, request: UpdateProfileRequest) -> dict:
         user = await self._get_user_from_access_token(token)
         if request.nickname != user.nickname:
@@ -563,8 +558,6 @@ class UserService:
             if taken is not None:
                 raise api_error(status.HTTP_409_CONFLICT, "NICKNAME_EXISTS", "이미 사용 중인 닉네임입니다.")
         user.nickname = request.nickname
-        user.name = request.name
-        user.phone = request.phone
         try:
             await self.db.commit()
         except IntegrityError as error:  # 조회 이후 동시 변경으로 닉네임이 겹친 경우

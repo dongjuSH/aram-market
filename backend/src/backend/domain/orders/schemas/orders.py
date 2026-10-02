@@ -3,11 +3,12 @@
 from pydantic import BaseModel, Field, field_validator
 
 from backend.core.address import AddressFields
+from backend.core.validators import MAX_DB_ID
 
 
 # 주문할 상품 한 줄
 class OrderLine(BaseModel):
-    product_id: int = Field(gt=0)
+    product_id: int = Field(gt=0, le=MAX_DB_ID)
     quantity: int = Field(ge=1, le=99)
 
 
@@ -32,7 +33,7 @@ class OrderCreateRequest(BaseModel):
 class OrderConfirmRequest(BaseModel):
     payment_key: str = Field(min_length=1, max_length=200)
     order_id: str = Field(min_length=6, max_length=64)
-    amount: int = Field(gt=0)
+    amount: int = Field(gt=0, le=MAX_DB_ID)
 
 
 # 관리자가 변경하는 다음 배송 단계

@@ -14,6 +14,7 @@ export function createOrder(items, fromCart, shipping) {
         postcode: shipping.postcode,
         address: shipping.address,
         address_detail: shipping.addressDetail,
+        no_address_detail: shipping.noAddressDetail,
         delivery_memo: shipping.deliveryMemo,
       },
     },
@@ -25,7 +26,13 @@ export function confirmPayment({ paymentKey, orderId, amount }) {
   return request('/api/orders/confirm', { body: { payment_key: paymentKey, order_id: orderId, amount } })
 }
 
-// 결제 완료된 내 주문 내역
-export function getOrders() {
-  return request('/api/orders', { method: 'GET' })
+// 결제 완료된 내 주문 내역(months: 3·6·12개월 또는 from·to: YYYY-MM-DD 직접 지정, 생략하면 전체 기간 최신순)
+export function getOrders({ months, from, to, page = 1, pageSize = 5 } = {}) {
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) })
+  if (months) params.set('months', String(months))
+  if (from && to) {
+    params.set('from', from)
+    params.set('to', to)
+  }
+  return request(`/api/orders?${params}`, { method: 'GET' })
 }

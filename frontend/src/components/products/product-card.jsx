@@ -1,7 +1,7 @@
 // 상품 목록·관련 상품 공통 카드: 이미지 아래 전폭 '담기' 버튼(컬리 방식)으로 장바구니에 담음
 
 import { addToCart } from '../../features/cart/shopping-store.js'
-import { HeartIcon } from '../../components/common/icons.jsx'
+import { HeartIcon, StarIcon } from '../../components/common/icons.jsx'
 
 // 이미지·상품 정보는 상세 이동, 가운데 '담기' 버튼은 장바구니 담기, onRemove가 있으면 이미지 위 하트로 찜 해제
 function ProductCard({ product, onOpen, onRemove }) {
@@ -27,6 +27,16 @@ function ProductCard({ product, onOpen, onRemove }) {
         <span className="product-card__category">{product.category}</span>
         <strong>{product.name}</strong>
         <span className="product-card__price">{product.price.toLocaleString('ko-KR')}원</span>
+        {product.review_count > 0 ? (
+          <span className="product-card__rating">
+            <StarIcon />
+            <b>{product.review_average.toFixed(1)}</b>
+            <span aria-hidden="true">·</span>
+            <span>후기 {product.review_count.toLocaleString('ko-KR')}</span>
+          </span>
+        ) : (
+          <span className="product-card__rating product-card__rating--empty">후기 없음</span>
+        )}
       </button>
     </article>
   )

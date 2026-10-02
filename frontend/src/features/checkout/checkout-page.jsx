@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { getAddresses } from '../../api/addresses.js'
-import { getCurrentUser } from '../../api/user-auth.js'
 import AddressFields from '../../components/user/address-fields.jsx'
 import { EMPTY_ADDRESS, validateAddress } from '../../config/address.js'
 import CustomerAccountShell from '../../components/user/customer-account-shell.jsx'
@@ -17,6 +16,7 @@ function toShipping(address, deliveryMemo) {
     postcode: address.postcode,
     address: address.address,
     addressDetail: address.address_detail,
+    noAddressDetail: !address.address_detail,
     deliveryMemo,
   }
 }
@@ -35,12 +35,12 @@ function CheckoutPage({ onNavigate }) {
   const [message, setMessage] = useState('')
   const [isPaying, setIsPaying] = useState(false)
 
-  // 주소록과 회원정보를 불러와 처음 선택을 정함: 이전 입력(결제 취소 후 복귀) → 기본 배송지 → 새 배송지(회원 이름·휴대폰 자동 입력)
+  // 주소록을 불러와 처음 선택을 정함: 이전 입력(결제 취소 후 복귀) → 기본 배송지 → 새 배송지 입력
   useEffect(() => {
     if (!draft) return
     let isMounted = true
-    Promise.all([getAddresses(), getCurrentUser().catch(() => null)])
-      .then(([addressBook, current]) => {
+    getAddresses()
+      .then((addressBook) => {
         if (!isMounted) return
         setBook(addressBook)
         const saved = addressBook.addresses
@@ -51,9 +51,6 @@ function CheckoutPage({ onNavigate }) {
         }
         if (draft.newAddress || saved.length === 0) {
           setMode('new')
-          if (!draft.newAddress && current?.user) {
-            setNewAddress((values) => ({ ...values, recipientName: values.recipientName || current.user.name || '', recipientPhone: values.recipientPhone || current.user.phone || '' }))
-          }
           if (!draft.label && saved.length === 0) setLabel('집')
           return
         }
@@ -107,6 +104,11 @@ function CheckoutPage({ onNavigate }) {
     let shipping
     if (mode === 'saved' && selected) {
       shipping = toShipping(selected, memo.trim())
+      // 우편번호·상세 주소 필수화 이전에 저장한 배송지는 주문 전에 보완 안내
+      if (validateAddress(shipping)) {
+        setMessage('선택한 배송지에 우편번호나 상세 주소가 없어요. 마이 페이지 배송지 관리에서 수정하거나 새 배송지를 입력해 주세요.')
+        return
+      }
     } else {
       const validationMessage = validateAddress(newAddress) || (canSaveToBook && saveToBook && !label.trim() ? '배송지 명칭을 입력해 주세요. (예: 집, 회사)' : '')
       if (validationMessage) {

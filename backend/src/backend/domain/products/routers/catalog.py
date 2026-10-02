@@ -1,8 +1,9 @@
 # 고객용 공개 상품 목록·상세 HTTP 엔드포인트
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query
 
 from backend.domain.products.services.products import ProductService
+from backend.core.validators import MAX_DB_ID
 
 
 router = APIRouter(prefix="/products", tags=["customer-products"])
@@ -28,5 +29,5 @@ async def list_catalog_products(
 
 # 고객 화면용 단일 노출 상품과 관련 상품 조회
 @router.get("/{product_id}")
-async def get_catalog_product(product_id: int, product_service: ProductService = Depends(ProductService)):
+async def get_catalog_product(product_id: int = Path(gt=0, le=MAX_DB_ID), product_service: ProductService = Depends(ProductService)):
     return await product_service.get_catalog_product(product_id)

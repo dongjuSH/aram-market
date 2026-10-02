@@ -1,4 +1,4 @@
-// 상품 목록 하단 페이지 이동 및 등록 버튼 UI
+// 관리자 목록(상품·문의) 하단 페이지 이동 및 등록 버튼 UI
 
 // 현재 페이지 주변 번호 계산
 function getPageNumbers(currentPage, totalPages) {
@@ -7,13 +7,14 @@ function getPageNumbers(currentPage, totalPages) {
   return Array.from({ length: Math.max(0, end - start + 1) }, (_, index) => start + index)
 }
 
-// 페이지 이동과 상품 등록 화면 이동 UI
-function ProductPagination({ page, total, pageSize, onPageChange, onCreate }) {
+// 처음·이전·번호·다음·마지막 페이지 이동과 상품 등록 화면 이동 UI(onCreate가 없으면 등록 버튼 숨김)
+function ProductPagination({ page, total, pageSize, onPageChange, onCreate, label = '상품 목록 페이지' }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const pageNumbers = getPageNumbers(page, totalPages)
   return (
     <div className="product-footer">
-      <nav className="pagination" aria-label="상품 목록 페이지">
+      <nav className="pagination" aria-label={label}>
+        <button type="button" aria-label="첫 페이지" disabled={page <= 1} onClick={() => onPageChange(1)}>«</button>
         <button type="button" aria-label="이전 페이지" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>‹</button>
         {pageNumbers.map((pageNumber) => (
           <button
@@ -27,6 +28,7 @@ function ProductPagination({ page, total, pageSize, onPageChange, onCreate }) {
           </button>
         ))}
         <button type="button" aria-label="다음 페이지" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>›</button>
+        <button type="button" aria-label="마지막 페이지" disabled={page >= totalPages} onClick={() => onPageChange(totalPages)}>»</button>
       </nav>
       {onCreate && <button className="product-create" type="button" onClick={onCreate}><span aria-hidden="true">＋</span> 상품 등록</button>}
     </div>

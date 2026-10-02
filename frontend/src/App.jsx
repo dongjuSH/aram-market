@@ -13,6 +13,7 @@ import CheckoutPage from './features/checkout/checkout-page.jsx'
 import { PaymentFailPage, PaymentSuccessPage } from './features/checkout/payment-result.jsx'
 import UserLoginPage from './features/user-auth/login.jsx'
 import UserMyPage from './features/user-auth/my-page.jsx'
+import UserOrdersPage from './features/user-auth/orders-page.jsx'
 import UserResetPasswordPage from './features/user-auth/reset-password.jsx'
 import UserSignupPage from './features/user-auth/signup.jsx'
 import UserUnlockAccountPage from './features/user-auth/unlock-account.jsx'
@@ -37,6 +38,7 @@ import {
   isCustomerProductDetailPath,
   USER_LOGIN_PATH,
   USER_MY_PAGE_PATH,
+  USER_ORDERS_PATH,
   USER_RESET_PASSWORD_PATH,
   USER_SIGNUP_PATH,
   USER_SUPPORTED_PATHS,
@@ -71,6 +73,7 @@ function getCurrentRoute() {
   const requiresAdmin = currentPath.startsWith(`${ADMIN_BASE_PATH}/`) && currentPath !== ADMIN_LOGIN_PATH
   if (requiresAdmin && !sessionStorage.getItem('adminCurrentUser')) return ADMIN_LOGIN_PATH
   if (currentPath === USER_MY_PAGE_PATH && !getStoredUser()) return getLoginPath(`${USER_MY_PAGE_PATH}${window.location.search}`)
+  if (currentPath === USER_ORDERS_PATH && !getStoredUser()) return getLoginPath(`${USER_ORDERS_PATH}${window.location.search}`)
   if (currentPath === WISHLIST_PATH && !getStoredUser()) return getLoginPath(WISHLIST_PATH)
   if ((currentPath === PAYMENT_SUCCESS_PATH || currentPath === CHECKOUT_PATH) && !getStoredUser()) return getLoginPath(CART_PATH)
   if ((currentPath === USER_LOGIN_PATH || currentPath === USER_SIGNUP_PATH) && getStoredUser()) {
@@ -116,6 +119,7 @@ function App() {
   if (path === USER_UNLOCK_PATH) return <UserUnlockAccountPage onNavigate={navigate} />
   if (path === USER_VERIFY_EMAIL_PATH) return <UserVerifyEmailPage onNavigate={navigate} />
   if (path === USER_MY_PAGE_PATH) return <UserMyPage onNavigate={navigate} />
+  if (path === USER_ORDERS_PATH) return <UserOrdersPage key={route} onNavigate={navigate} />
   if (path === ADMIN_PRODUCT_CREATE_PATH || path === ADMIN_PRODUCT_EDIT_PATH) {
     return (
       <Suspense fallback={<main className="products-page products-page--loading"><p>상품 편집기를 불러오고 있습니다.</p></main>}>

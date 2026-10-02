@@ -23,12 +23,10 @@ function WishlistPage({ onNavigate }) {
       <a className="catalog-skip-link" href="#catalog-main">본문 바로가기</a>
       <CatalogHeader onNavigate={onNavigate} />
       <main id="catalog-main" className="wishlist-shell" tabIndex="-1">
-        <header className="wishlist-heading">
-          <h1>찜</h1>
+        <header className="cart-heading">
+          <p>WISHLIST</p>
+          <h1>찜 목록{wishlistItems.length > 0 && <> <span>{wishlistItems.length}</span></>}</h1>
         </header>
-        <div className="wishlist-summary">
-          <strong>상품 {wishlistItems.length}</strong>
-        </div>
 
         {wishlistItems.length > 0 && (
           <nav className="wishlist-categories" aria-label="찜한 상품 카테고리">

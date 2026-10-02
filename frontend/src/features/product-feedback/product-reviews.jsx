@@ -115,11 +115,14 @@ function ProductReviews({ productId, onNavigate, onSummaryChange }) {
 
       {!isLoggedIn && (
         <p className="feedback-guide">
-          후기는 상품을 구매한 고객만 작성할 수 있어요. <button type="button" onClick={() => onNavigate(getLoginPath(`${window.location.pathname}${window.location.search}`))}>로그인</button>
+          후기는 상품을 구매하고 배송이 완료된 고객만 작성할 수 있어요. <button type="button" onClick={() => onNavigate(getLoginPath(`${window.location.pathname}${window.location.search}`))}>로그인</button>
         </p>
       )}
       {isLoggedIn && eligibility && !canWrite && eligibility.reason === 'not_purchased' && (
-        <p className="feedback-guide">이 상품을 구매하면 후기를 작성할 수 있어요.</p>
+        <p className="feedback-guide">이 상품을 구매하면 배송 완료 후 후기를 작성할 수 있어요.</p>
+      )}
+      {isLoggedIn && eligibility?.reason === 'not_delivered' && (
+        <p className="feedback-guide">배송이 완료되면 후기를 작성할 수 있어요.</p>
       )}
       {isLoggedIn && eligibility?.reason === 'already_reviewed' && !isEditing && <p className="feedback-guide">이미 후기를 작성했어요. 아래에서 수정하거나 삭제할 수 있어요.</p>}
 

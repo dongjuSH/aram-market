@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 
 from fastapi import Depends, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.database import get_db
@@ -18,6 +18,24 @@ from backend.core.errors import api_error
 from backend.domain.users.services.users import UserService
 
 SECRET_PLACEHOLDER = "비밀글입니다."
+
+
+# LIKE 특수문자(%, _, 역슬래시)를 글자 그대로 찾도록 이스케이프
+def escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+# 관리자 문의 검색 조건: 상품명·문의 내용·작성자 닉네임 중 하나라도 포함하면 일치(빈 검색어는 전체)
+def admin_search_condition(keyword: str):
+    normalized = keyword.strip()
+    if not normalized:
+        return true()
+    pattern = f"%{escape_like(normalized)}%"
+    return or_(
+        ProductInquiry.content.ilike(pattern, escape="\\"),
+        Product.name.ilike(pattern, escape="\\"),
+        User.nickname.ilike(pattern, escape="\\"),
+    )
 
 
 # 상품 문의 서비스
@@ -86,18 +104,38 @@ class InquiryService:
         await self.db.commit()
         return {"message": "문의를 삭제했습니다."}
 
-    # 관리자용 문의 목록(전체 내용 표시, 답변 대기만 필터 가능)
-    async def admin_list(self, admin_token: str, only_unanswered: bool, page: int, page_size: int) -> dict:
+    # 관리자용 문의 목록: 답변 대기(오래된 순)·답변 완료(최근 답변 순)와 상품명·내용·닉네임 검색, 탭별 건수
+    async def admin_list(self, admin_token: str, inquiry_status: str, keyword: str, page: int, page_size: int) -> dict:
         await self.admin_service.get_authenticated_admin(admin_token)
-        condition = ProductInquiry.answer.is_(None) if only_unanswered else True
-        total = (await self.db.execute(select(func.count()).select_from(ProductInquiry).where(condition))).scalar_one()
+        is_pending = ProductInquiry.answer.is_(None)
+        search = admin_search_condition(keyword)
+
+        def joined(query):
+            return query.outerjoin(User, User.id == ProductInquiry.user_id).outerjoin(Product, Product.id == ProductInquiry.product_id).where(search)
+
+        pending_count, answered_count = (
+            await self.db.execute(
+                joined(
+                    select(
+                        func.count().filter(is_pending),
+                        func.count().filter(ProductInquiry.answer.is_not(None)),
+                    ).select_from(ProductInquiry)
+                )
+            )
+        ).one()
+        if inquiry_status == "pending":
+            condition = is_pending
+            order = (ProductInquiry.created_at.asc(), ProductInquiry.id.asc())
+            total = pending_count
+        else:
+            condition = ProductInquiry.answer.is_not(None)
+            order = (ProductInquiry.answered_at.desc(), ProductInquiry.id.desc())
+            total = answered_count
         rows = (
             await self.db.execute(
-                select(ProductInquiry, User.nickname, Product.name)
-                .outerjoin(User, User.id == ProductInquiry.user_id)
-                .outerjoin(Product, Product.id == ProductInquiry.product_id)
+                joined(select(ProductInquiry, User.nickname, Product.name))
                 .where(condition)
-                .order_by(ProductInquiry.created_at.desc(), ProductInquiry.id.desc())
+                .order_by(*order)
                 .limit(page_size)
                 .offset((page - 1) * page_size)
             )
@@ -118,6 +156,7 @@ class InquiryService:
                 for inquiry, nickname, product_name in rows
             ],
             "total": total,
+            "counts": {"pending": pending_count, "answered": answered_count},
             "page": page,
         }
 

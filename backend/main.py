@@ -22,7 +22,7 @@ from backend.core.config import settings
 from backend.core.database import Base, async_session, engine
 from backend.core.problems import http_exception_handler, unhandled_exception_handler, validation_exception_handler
 from backend.core.rate_limit import RateLimitEvent, purge_rate_limit_events  # noqa: F401 - 요청 제한 테이블 메타데이터 등록
-from backend.domain.products.models.products import Product, ProductAuditLog, ProductCategory, ProductRelation
+from backend.domain.products.models.products import Product, ProductAuditLog, ProductCategory, ProductRelation  # noqa: F401 - 상품 테이블 메타데이터 등록
 from backend.domain.admins.models.admins import AdminAccount, AdminRefreshToken  # noqa: F401 - 관리자 리프레시 토큰 메타데이터 등록
 from backend.domain.admins.routers.admins import router as admin_router
 from backend.domain.admins.services.admins import AdminAccountService
@@ -45,7 +45,6 @@ from backend.domain.products.routers.catalog import router as catalog_router
 from backend.domain.products.routers.products import router as admin_product_router
 from backend.domain.products.services.storage import product_storage
 
-
 DEFAULT_PRODUCT_CATEGORIES = (
     ("food", "식품"),
     ("fashion", "패션·의류"),
@@ -67,7 +66,7 @@ USER_PURGE_INTERVAL_SECONDS = 60 * 60
 CLEANUP_LOCK_KEY = 7_204_531_001
 
 
-# 정리 작업 1회: 잠금을 얻은 서버만 만료 계정·토큰·요청 기록을 한 트랜잭션으로 삭제(못 얻으면 다른 서버가 실행 중이므로 건너뜀)
+# 정리 작업 1회: 잠금을 얻은 서버만 만료 계정·토큰·요청 기록·미결제 주문·보관기간(5년)이 지난 주문을 한 트랜잭션으로 삭제(못 얻으면 다른 서버가 실행 중이므로 건너뜀)
 async def run_cleanup_once() -> None:
     async with async_session() as session:
         # 트랜잭션이 끝나면 자동 해제되는 잠금이라 Supabase Pooler(트랜잭션 모드)에서도 안전
@@ -80,6 +79,7 @@ async def run_cleanup_once() -> None:
         await AdminAccountService(session).purge_expired_refresh_tokens(commit=False)
         await purge_rate_limit_events(session, commit=False)
         await OrderService(session).purge_unpaid_orders(commit=False)
+        await OrderService(session).purge_expired_orders(commit=False)
         await session.commit()
 
 

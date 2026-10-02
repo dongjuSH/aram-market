@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Path, status
 from backend.core.dependencies import require_user_token
 from backend.domain.carts.schemas.carts import CartAddRequest, CartMergeRequest, CartQuantityRequest, CartRemoveRequest
 from backend.domain.carts.services.carts import CartService
+from backend.core.validators import MAX_DB_ID
 
 router = APIRouter(prefix="/cart", tags=["cart"])  # main.py에서 공통 /api 접두사 적용
 
@@ -39,7 +40,7 @@ async def remove_cart_items(
 @router.put("/items/{product_id}", status_code=status.HTTP_200_OK)
 async def set_cart_item_quantity(
     request: CartQuantityRequest,
-    product_id: int = Path(gt=0),
+    product_id: int = Path(gt=0, le=MAX_DB_ID),
     token: str = Depends(require_user_token),
     cart_service: CartService = Depends(CartService),
 ):

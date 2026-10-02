@@ -17,6 +17,7 @@ function toForm(address) {
     postcode: address.postcode,
     address: address.address,
     addressDetail: address.address_detail,
+    noAddressDetail: !address.address_detail,
     isDefault: address.is_default,
   }
 }

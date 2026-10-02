@@ -66,10 +66,6 @@ class User(Base):
     # 상품·혜택 이메일 수신에 대한 선택 동의
     marketing_consent: Mapped[bool] = mapped_column(default=False, nullable=False)
 
-    # 계정 주인의 이름·휴대폰(마이 페이지에서 선택 등록, 주문서 받는 분·연락처 자동 입력에 사용). 배송지 주소는 user_addresses에 보관
-    name: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
-
     # 이메일 소유 확인 완료 시각(None이면 미인증 계정이며 로그인 불가)
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

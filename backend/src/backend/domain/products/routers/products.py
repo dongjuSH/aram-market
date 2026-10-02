@@ -1,13 +1,16 @@
 # 인증 관리자의 전역 상품 조회·등록·수정·삭제 HTTP 엔드포인트
 
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Path, Query, status
 
 from backend.domain.products.schemas.products import EditorImageUploadRequest, ProductCreateRequest, ProductUpdateRequest
 from backend.domain.products.services.products import ProductService
 from backend.core.dependencies import require_admin_token
+from backend.core.errors import api_error
 from backend.domain.admins.services.admins import AdminAccountService
+from backend.core.validators import MAX_DB_ID
 
 
 router = APIRouter(prefix="/admin/products", tags=["admin-products"])
@@ -95,7 +98,7 @@ async def list_related_candidates(
 # 단일 전역 상품과 관련 상품 후보 조회
 @router.get("/{product_id}")
 async def get_product(
-    product_id: int,
+    product_id: Annotated[int, Path(gt=0, le=MAX_DB_ID)],
     token: str = Depends(require_admin_token),
     admin_service: AdminAccountService = Depends(AdminAccountService),
     product_service: ProductService = Depends(ProductService),
@@ -107,7 +110,7 @@ async def get_product(
 # 기존 관리자 상품 수정
 @router.put("/{product_id}")
 async def update_product(
-    product_id: int,
+    product_id: Annotated[int, Path(gt=0, le=MAX_DB_ID)],
     request: ProductUpdateRequest,
     token: str = Depends(require_admin_token),
     admin_service: AdminAccountService = Depends(AdminAccountService),
@@ -120,7 +123,7 @@ async def update_product(
 # 전역 상품 소프트 삭제
 @router.delete("/{product_id}")
 async def delete_product(
-    product_id: int,
+    product_id: Annotated[int, Path(gt=0, le=MAX_DB_ID)],
     token: str = Depends(require_admin_token),
     admin_service: AdminAccountService = Depends(AdminAccountService),
     product_service: ProductService = Depends(ProductService),
@@ -132,7 +135,7 @@ async def delete_product(
 # 삭제 상품을 충돌 검증 후 미노출 상태로 복원
 @router.post("/{product_id}/restore")
 async def restore_product(
-    product_id: int,
+    product_id: Annotated[int, Path(gt=0, le=MAX_DB_ID)],
     token: str = Depends(require_admin_token),
     admin_service: AdminAccountService = Depends(AdminAccountService),
     product_service: ProductService = Depends(ProductService),

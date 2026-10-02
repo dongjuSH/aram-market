@@ -6,7 +6,6 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from backend.core.address import AddressFields
-from backend.core.validators import normalize_person_name, normalize_phone
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]{4,20}$")  # 영문·숫자·밑줄 아이디 규칙
 NICKNAME_PATTERN = re.compile(r"^[A-Za-z0-9_가-힣]{2,10}$")  # 한글 포함 화면 표시명 규칙
@@ -169,15 +168,11 @@ def validate_nickname_value(value: str) -> str:
     return normalized
 
 
-# 마이 페이지 회원정보 수정(닉네임·이름·휴대폰 필수, 주소는 주소록에서 관리)
+# 마이 페이지 회원정보 수정(닉네임만, 받는 분 이름·연락처는 배송지 주소록에서 관리)
 class UpdateProfileRequest(BaseModel):
     nickname: str = Field(min_length=1, max_length=10)
-    name: str = Field(min_length=1, max_length=30)
-    phone: str = Field(min_length=1, max_length=20)
 
     _validate_nickname = field_validator("nickname")(validate_nickname_value)
-    _normalize_name = field_validator("name")(normalize_person_name)
-    _normalize_phone = field_validator("phone")(normalize_phone)
 
 
 # 주소록 배송지 추가·수정(명칭 1~20자, 기본 배송지 지정 선택)

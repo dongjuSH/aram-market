@@ -7,6 +7,7 @@ from backend.core.client_ip import get_client_ip
 from backend.core.rate_limit import enforce_limit
 from backend.domain.reviews.schemas.reviews import ReviewRequest
 from backend.domain.reviews.services.reviews import ReviewService
+from backend.core.validators import MAX_DB_ID
 
 router = APIRouter(tags=["reviews"])  # main.py에서 공통 /api 접두사 적용
 
@@ -14,7 +15,7 @@ router = APIRouter(tags=["reviews"])  # main.py에서 공통 /api 접두사 적�
 # 후기 목록과 평점 요약
 @router.get("/products/{product_id}/reviews")
 async def list_reviews(
-    product_id: int = Path(gt=0),
+    product_id: int = Path(gt=0, le=MAX_DB_ID),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=5, ge=1, le=20),
     token: str | None = Depends(optional_user_token),
@@ -26,7 +27,7 @@ async def list_reviews(
 # 내가 이 상품의 후기를 작성할 수 있는지 확인
 @router.get("/products/{product_id}/reviews/eligibility")
 async def review_eligibility(
-    product_id: int = Path(gt=0),
+    product_id: int = Path(gt=0, le=MAX_DB_ID),
     token: str = Depends(require_user_token),
     service: ReviewService = Depends(ReviewService),
 ):
@@ -38,7 +39,7 @@ async def review_eligibility(
 async def create_review(
     request: ReviewRequest,
     http_request: Request,
-    product_id: int = Path(gt=0),
+    product_id: int = Path(gt=0, le=MAX_DB_ID),
     token: str = Depends(require_user_token),
     service: ReviewService = Depends(ReviewService),
 ):
@@ -50,7 +51,7 @@ async def create_review(
 @router.put("/reviews/{review_id}")
 async def update_review(
     request: ReviewRequest,
-    review_id: int = Path(gt=0),
+    review_id: int = Path(gt=0, le=MAX_DB_ID),
     token: str = Depends(require_user_token),
     service: ReviewService = Depends(ReviewService),
 ):
@@ -60,7 +61,7 @@ async def update_review(
 # 내 후기 삭제
 @router.delete("/reviews/{review_id}")
 async def delete_review(
-    review_id: int = Path(gt=0),
+    review_id: int = Path(gt=0, le=MAX_DB_ID),
     token: str = Depends(require_user_token),
     service: ReviewService = Depends(ReviewService),
 ):

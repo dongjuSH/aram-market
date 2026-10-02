@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Path, status
 
 from backend.core.dependencies import require_user_token
 from backend.domain.wishlists.services.wishlists import WishlistService
+from backend.core.validators import MAX_DB_ID
 
 router = APIRouter(prefix="/wishlist", tags=["wishlist"])  # main.py에서 공통 /api 접두사 적용
 
@@ -17,7 +18,7 @@ async def get_wishlist(token: str = Depends(require_user_token), service: Wishli
 # 상품 찜하기
 @router.put("/{product_id}", status_code=status.HTTP_200_OK)
 async def add_wishlist_item(
-    product_id: int = Path(gt=0),
+    product_id: int = Path(gt=0, le=MAX_DB_ID),
     token: str = Depends(require_user_token),
     service: WishlistService = Depends(WishlistService),
 ):
@@ -27,7 +28,7 @@ async def add_wishlist_item(
 # 찜 해제
 @router.delete("/{product_id}", status_code=status.HTTP_200_OK)
 async def remove_wishlist_item(
-    product_id: int = Path(gt=0),
+    product_id: int = Path(gt=0, le=MAX_DB_ID),
     token: str = Depends(require_user_token),
     service: WishlistService = Depends(WishlistService),
 ):

@@ -17,18 +17,18 @@
 - 고정 아이디 `admin` 한 개만 사용하는 관리자 로그인
 - 관리자 상품 목록·검색·등록·수정·소프트 삭제·복원
 - 고객 장바구니(로그인 시 DB 저장), 찜 목록(마이 페이지), 토스페이먼츠 테스트 결제(주문 생성·서버 승인·주문 내역)
-- 상품 후기(구매 고객만)·문의(로그인 고객, 비밀글, 관리자 답변)
+- 상품 후기(배송완료된 구매 고객만)·문의(로그인 고객, 비밀글, 관리자 답변)
 - 주문서(배송지 입력)·배송 상태(결제완료 → 상품준비중 → 배송중 → 배송완료, 관리자 변경)·마이 페이지 배송 현황
 - 고객 헤더: 상단 회원가입·로그인(로그인 시 닉네임·로그아웃), 우측 찜 목록·장바구니·마이 페이지 아이콘(컬리 방식)
 - 찜 목록 전용 페이지(`/wishlist`), 배송지 주소록(마이 페이지 관리·주문서 선택, 최대 10개), 마이 페이지 회원정보 수정·이메일 변경(메일 확인 후 반영), 상세 상단 개편(컬리·쿠팡형 정보 행)
-- 관리자 화면: 상품 관리·주문 관리·문의 관리(현재 화면을 제외한 나머지 메뉴만 표시)
+- 관리자 화면: 상품 관리·주문 관리·문의 관리(헤더에 세 메뉴를 항상 표시, 현재 화면 메뉴는 강조·클릭 불가, 상품 등록·수정 화면에서는 '상품 관리'가 강조되지만 목록으로 이동 가능). 주문 관리의 다음 단계 버튼 문구는 `config/delivery.js`의 `action`
 - Supabase PostgreSQL 및 Supabase Storage 연결
 - 상품 변경 감사 로그와 이미지 임시 업로드 정리
 
 실제 Supabase 상태:
 
 - `admin_accounts`: 활성 `admin` 계정 1건
-- `users`: 테스트 회원 5건(`testuser01~05`), `marketing_consent`·`email_verified_at`·`email_verification_sent_at`·`name`·`phone` 컬럼 적용 완료(기존 회원은 인증 완료 처리, 이름·휴대폰은 비어 있음). 예전 주소 컬럼(`postcode`·`address`·`address_detail`)은 주소록으로 대체되어 제거됨
+- `users`: 테스트 회원 5건(`testuser01~05`), `marketing_consent`·`email_verified_at`·`email_verification_sent_at` 컬럼 적용 완료(기존 회원은 인증 완료 처리). 예전 주소 컬럼(`postcode`·`address`·`address_detail`)과 이름·휴대폰(`name`·`phone`, 028)은 주소록으로 대체되어 제거됨
 - `user_policy_consents`: 약관 종류·버전·동의 여부·시각 이력(기존 회원은 v1.0 이력 백필)
 - `products`: 총 30건(활성 29건, 삭제 1건)이며 소프트 삭제 상품도 보존
 - 마이그레이션 017~026으로 추가된 테이블: `user_refresh_tokens`, `admin_refresh_tokens`, `rate_limit_events`, `cart_items`, `wishlist_items`, `orders`(배송 컬럼 포함), `order_items`, `product_reviews`, `product_inquiries`, `user_addresses` (모두 적용 완료, 검수 스크립트로 확인)
@@ -37,7 +37,7 @@
 
 자동 검증 기준:
 
-- 백엔드 단위 테스트 81개 통과
+- 백엔드 단위 테스트 91개 통과(`tests/test_api_routes.py`가 앱 조립·인증 필요 경로·ID 범위를 DB 없이 확인)
 - Python `compileall` 통과
 - 프런트 `oxlint` 통과
 - Vite 프로덕션 빌드 통과
@@ -85,7 +85,7 @@ git ls-files | rg '(^|/)(\.env($|\.)|node_modules|dist|\.venv|__pycache__|.*\.py
 - 백엔드: Python, FastAPI, SQLAlchemy Async, Pydantic
 - DB: Supabase PostgreSQL
 - 이미지: Supabase Storage 공개 `product-images` 버킷
-- 인증: PBKDF2-SHA256 비밀번호 해시, 표준 JWT(HS256, PyJWT: `iss`·`aud`=토큰 용도·`sub`·`iat`·`exp`·`jti`, 알고리즘 서버 고정) 접근 토큰을 HttpOnly 쿠키(`user_access_token`, `admin_access_token`, Path=/api)로 전달. 리프레시 토큰은 무작위 불투명 값이며 고객은 `user_refresh_token`(Path=/api/users), 관리자는 `admin_refresh_token`(Path=/api/admins) 쿠키로만 전달하고 DB에는 SHA-256 해시만 저장
+- 인증: PBKDF2-SHA256 비밀번호 해시, 표준 JWT(HS256, PyJWT: `iss`·`aud`=토큰 용도·`sub`·`iat`·`exp`·`jti`, 알고리즘 서버 고정) 접근 토큰을 HttpOnly 쿠키(`user_access_token`, `admin_access_token`, Path=/api)로 전달. 리프레시 토큰 쿠키는 만료 시각이 없는 세션 쿠키라 브라우저를 닫으면 로그인이 풀린다(서버 쪽 최대 유지기간은 DB 만료로 유지). 리프레시 토큰은 무작위 불투명 값이며 고객은 `user_refresh_token`(Path=/api/users), 관리자는 `admin_refresh_token`(Path=/api/admins) 쿠키로만 전달하고 DB에는 SHA-256 해시만 저장
 - 메일: SMTP, HTML·텍스트 멀티파트
 - 메일 종류: 아이디 안내, 비밀번호 재설정, 계정 잠금 해제, 가입 이메일 인증. SMTP 연결·인증(`scripts/check_smtp.py`)과 잠금 해제·가입 인증 메일의 실제 발송·링크 동작은 사용자가 기능 구현 시 직접 테스트해 정상 확인함
 - 시간대: DB 요청과 프런트 표시 모두 `Asia/Seoul`
@@ -98,11 +98,11 @@ git ls-files | rg '(^|/)(\.env($|\.)|node_modules|dist|\.venv|__pycache__|.*\.py
 product-management/
 ├─ backend/
 │  ├─ main.py
-│  ├─ migrations/                 # 001~026 스키마 변경 이력
+│  ├─ migrations/                 # 001~028 스키마·데이터 변경 이력
 │  ├─ scripts/                    # 마이그레이션·검수·관리 스크립트
 │  ├─ tests/
 │  └─ src/backend/
-│     ├─ core/                    # 설정, DB, 토큰·비밀번호 보안, 공통 오류(errors)·인증 쿠키 의존성(dependencies)·요청 제한·주소/이름/휴대폰 검증(address, validators)
+│     ├─ core/                    # 설정, DB, 토큰·비밀번호 보안, 공통 오류(errors)·인증 쿠키 의존성(dependencies)·요청 제한·배송지(받는 분 이름·휴대폰·주소) 검증(address, validators)
 │     └─ domain/
 │        ├─ admins/               # 단일 관리자 인증
 │        ├─ carts/                # 로그인 고객 서버 장바구니
@@ -168,7 +168,7 @@ npm run dev
 - `PASSWORD_RESET_TOKEN_EXPIRE_MINUTES`
 - `WITHDRAWAL_GRACE_DAYS`: 현재 7일
 - `WITHDRAWAL_RETENTION_DAYS`: 현재 0일
-- `BACKEND_PUBLIC_URL`, `FRONTEND_URL`
+- `FRONTEND_URL`(메일 링크·CORS 허용 출처·쿠키 Secure 기본값 판단에 사용)
 - `EMAIL_VERIFICATION_TOKEN_EXPIRE_MINUTES`(기본 1440, 미인증 계정 보관시간), `EMAIL_VERIFICATION_RESEND_SECONDS`(기본 60)
 - `TOSS_SECRET_KEY`: 토스페이먼츠 시크릿 키(서버 전용, 현재 문서용 테스트 키 `test_sk_...`, 실제 결제 없음), `TOSS_API_BASE`(기본 https://api.tosspayments.com). 프런트 `frontend/.env.local`의 `VITE_TOSS_CLIENT_KEY`(공개 클라이언트 키, 테스트 `test_ck_...`). 운영 전 실제 가맹점 키로 교체하며 시크릿 키는 절대 Git에 올리지 않는다
 - `TRUSTED_PROXY_IPS`: X-Forwarded-For를 신뢰할 리버스 프록시 IP·대역(쉼표 구분, 기본 빈 값=직접 접속 IP만 사용). 프록시 뒤에 배포하면 반드시 설정
@@ -189,16 +189,17 @@ npm run dev
 - `/user/reset-password?token=...`: 이메일 토큰 기반 재설정
 - `/user/verify-email?token=...`: 가입 이메일 인증 확인(`&type=email-change`면 마이 페이지 이메일 변경 확인)
 - `/user/login?next=...`: 로그인 후 `next`(고객 화면만 허용, `getSafeRedirectPath`)로 복귀. 장바구니 화면을 만들면 `config/routes.js`의 허용 목록에 추가
-- `/user`: 로그인 고객 마이페이지(주문·배송 → 회원정보 → 배송지 관리 → 수신 설정 → 계정 관리 순서, 로그아웃 버튼은 헤더 상단에만 있음)
+- `/user`: 로그인 고객 마이페이지(주문·배송 → 회원정보(닉네임·이메일·마케팅 수신 설정) → 배송지 관리 → 계정 관리 순서, 로그아웃 버튼은 헤더 상단에만 있음). 주문·배송은 최근 3건(`RECENT_ORDER_COUNT`)만 보이고 '전체 보기'로 `/user/orders`에 이동
+- `/user/orders?months=3&page=1` 또는 `?from=YYYY-MM-DD&to=YYYY-MM-DD&page=1`: 주문 내역 페이지(로그인 필요). 조회 기간 3개월(기본)·6개월·1년 버튼과 '기간 설정'(시작일·종료일 직접 지정, 한국 시간 기준 오늘부터 5년 전 같은 날까지만 선택 가능, 브라우저 기본 날짜 입력), 한 페이지 5건 이전·다음 페이지네이션. 주문 카드의 상품을 누르면 상품 상세로 이동한다(마이 페이지 공용 `OrderList`, 상품 행이 삭제돼 `product_id`가 없으면 이동하지 않음). 기간·페이지는 주소에 담아 뒤로가기·새로고침에도 유지되며 범위 밖 페이지는 마지막 페이지로 이동
 - `/wishlist`: 찜한 상품 페이지(로그인 필요, 카테고리 칩은 줄바꿈 없이 가로 스크롤이며 모바일에서는 화면 끝까지 넓혀 다음 칩이 잘려 보임, 이미지 위 하트로 찜 해제, 담기 버튼)
 - `/cart`: 장바구니(로그인 없이 조회·수정 가능, 주문하기는 로그인 필요)
 - `/user/unlock?token=...`: 잠금 해제 메일 링크. 화면의 버튼을 눌러야 POST로 해제
-- `/checkout`: 주문서(주문 상품 확인·배송지 선택 또는 새 배송지 입력·배송 요청사항·결제하기, 로그인 필요). 상세 '구매하기'와 장바구니 '주문하기'가 주문 초안(상품 id·이름·가격·이미지·수량만)을 `sessionStorage`에 저장하고 이 화면으로 이동한다(로그아웃·세션 만료 시 초안 삭제). 기본 배송지가 미리 선택되고 '배송지 변경'으로 주소록에서 고르거나 '새 배송지 입력'으로 전환한다. 주소록이 비어 있으면 새 배송지 입력 칸에 회원정보의 이름·휴대폰이 받는 분·연락처로 자동 입력된다. 새 배송지는 '이 배송지를 주소록에 저장' 체크박스(주소록 여유가 있을 때 기본 체크, 명칭 입력 필요, 가득 차면 안내만 표시)를 켜면 **결제 승인 성공 후에만** `/payment/success`가 주소록에 추가한다(기존 배송지는 바뀌지 않으므로 교체 경고·확인 모달은 없음, 저장 실패는 결제 결과에 영향 없음). 입력·선택은 주문 초안에 보관돼 결제 취소 후 돌아와도 유지된다. '이전으로'는 장바구니 주문이면 장바구니로, 바로 구매면 해당 상품 상세로 돌아간다.
+- `/checkout`: 주문서(주문 상품 확인·배송지 선택 또는 새 배송지 입력·배송 요청사항·결제하기, 로그인 필요). 상세 '구매하기'와 장바구니 '주문하기'가 주문 초안(상품 id·이름·가격·이미지·수량만)을 `sessionStorage`에 저장하고 이 화면으로 이동한다(로그아웃·세션 만료 시 초안 삭제). 기본 배송지가 미리 선택되고 '배송지 변경'으로 주소록에서 고르거나 '새 배송지 입력'으로 전환한다. 주소록이 비어 있으면 새 배송지 입력으로 시작한다(받는 분·연락처 자동 입력 없음). 새 배송지는 '이 배송지를 주소록에 저장' 체크박스(주소록 여유가 있을 때 기본 체크, 명칭 입력 필요, 가득 차면 안내만 표시)를 켜면 **결제 승인 성공 후에만** `/payment/success`가 주소록에 추가한다(기존 배송지는 바뀌지 않으므로 교체 경고·확인 모달은 없음, 저장 실패는 결제 결과에 영향 없음). 입력·선택은 주문 초안에 보관돼 결제 취소 후 돌아와도 유지된다. '이전으로'는 장바구니 주문이면 장바구니로, 바로 구매면 해당 상품 상세로 돌아간다.
 - `/payment/success?paymentKey&orderId&amount`: 결제창 성공 리다이렉트(로그인 필요, 서버 승인 후 결과 표시), `/payment/fail`: 결제 실패·취소 안내
 
 관리자 화면:
 
-- `${VITE_ADMIN_BASE_PATH}/inquiries`: 상품 문의 답변 관리
+- `${VITE_ADMIN_BASE_PATH}/inquiries?status=pending|answered&q=...&page=1`: 상품 문의 답변 관리(탭·검색어·페이지를 주소에 유지)
 - `${VITE_ADMIN_BASE_PATH}/orders`: 결제 완료 주문의 배송지 확인·배송 상태 변경
 - `${VITE_ADMIN_BASE_PATH}/login`
 - `${VITE_ADMIN_BASE_PATH}/products`
@@ -218,7 +219,7 @@ npm run dev
 - `withdrawn_at`, `auth_version`
 - `service_policy`, `privacy_policy`
 - `marketing_consent`: 선택 이메일 수신 동의
-- `name`, `phone`: 이름·휴대폰 번호(010-1234-5678 형식으로 정규화). 기존 회원은 NULL이며 마이 페이지에서 선택 등록한다. 배송지 주소는 `user_addresses`(주소록)에 있다
+- 회원 테이블에는 이름·휴대폰이 없다(028에서 제거). 받는 분 이름·연락처·주소는 `user_addresses`(주소록)와 주문 배송지에만 있다
 
 정책:
 
@@ -229,8 +230,9 @@ npm run dev
 - 고객 토큰 용도는 `user_access`이며 `admin_access`와 교차 사용할 수 없다.
 - 토큰은 로그인 응답 본문에 넣지 않고 HttpOnly 쿠키로만 발급한다. 프런트는 토큰 대신 `localStorage.userCurrentUser`(id·닉네임 표식)로 로그인 표시만 하며 실제 인증은 서버가 쿠키로 검증한다. 로그아웃은 `POST /api/users/signout`.
 - CSRF는 SameSite 쿠키(기본 lax)와 JSON 요청·CORS 허용 출처 제한에 의존한다. 별도 CSRF 토큰은 없으므로 SameSite를 none으로 바꾸려면 CSRF 토큰을 먼저 도입한다.
-- 회원가입에서는 이름·휴대폰·주소를 받지 않는다(개인정보 최소 수집: 주문에 필요한 값은 주문서에서 필수로 받고, 인증하지 않는 휴대폰 번호를 가입 필수로 받을 이유가 없음). 휴대폰 번호 인증(문자)은 구현하지 않는다(휴대폰은 배송 연락용일 뿐이며 본인 확인은 이메일 인증으로 한다). 이름·휴대폰은 마이 페이지에서 선택 등록하며 주문서 받는 분·연락처 자동 입력에 쓰인다.
-- 마이 페이지 회원정보 수정(`PUT /api/users/me/profile`): 닉네임(중복 불가 409 `NICKNAME_EXISTS`)·이름·휴대폰은 필수(닉네임은 후기·문의 등 공개 표시명, 이름은 주문·연락용 실명이라 둘 다 유지). 주소는 배송지 주소록에서 관리한다. 이메일 변경은 현재 비밀번호를 확인한 뒤 새 이메일로 확인 링크(`user_email_change` 토큰, 새 이메일·`auth_version` 포함)를 보내고, 링크 확인(`POST /api/users/email-change/confirm`) 전까지 기존 이메일이 유지된다. 이미 가입된 이메일은 409 `EMAIL_EXISTS`, 발송은 메일 발송 제한(IP·대상 이메일)을 따른다.
+- 회원가입에서는 이름·휴대폰·주소를 받지 않는다(개인정보 최소 수집: 주문에 필요한 값은 주문서에서 필수로 받고, 인증하지 않는 휴대폰 번호를 가입 필수로 받을 이유가 없음). 휴대폰 번호 인증(문자)은 구현하지 않는다(휴대폰은 배송 연락용일 뿐이며 본인 확인은 이메일 인증으로 한다). 회원정보에도 이름·휴대폰을 두지 않는다(주소록과 중복되고, 닉네임만 바꿀 때도 필수 입력이 되는 문제가 있어 2026-10-01 제거).
+- 마이 페이지 회원정보 수정(`PUT /api/users/me/profile`): 닉네임만 수정한다(중복 불가 409 `NICKNAME_EXISTS`, 후기·문의 등 공개 표시명). 받는 분 이름·연락처·주소는 배송지 주소록에서 관리한다. 마케팅 수신 동의 스위치는 회원정보 카드 안에 있다. 이메일 변경은 현재 비밀번호를 확인한 뒤 새 이메일로 확인 링크(`user_email_change` 토큰, 새 이메일·`auth_version` 포함)를 보내고, 링크 확인(`POST /api/users/email-change/confirm`) 전까지 기존 이메일이 유지된다. 이미 가입된 이메일은 409 `EMAIL_EXISTS`, 발송은 메일 발송 제한(IP·대상 이메일)을 따른다.
+- 약관 v1.1(2026-10-01): 이용약관에 테스트 사이트 고지·가입/인증·잠금·탈퇴 유예·주문/결제(토스페이먼츠)·배송 단계·장바구니/찜·후기/문의 규칙, 개인정보 동의에 선택 항목(주소록)·주문 배송정보·후기/문의·자동 생성 정보(동의 이력·쿠키·HMAC 변환 IP)·항목별 보유기간(주문·결제·배송 기록 5년)·처리 위탁(토스페이먼츠·Supabase(서버 소재지 대한민국, 국외 이전 없음)·메일 발송)·쿠키·이용자 권리를 추가했다. 마케팅 동의는 v1.0 유지. 기존 활성 회원 4명(testuser01·02·04·05)은 마이그레이션 027로 v1.1 동의 이력을 자동 추가했다(탈퇴 유예 중인 testuser03 제외, 복구해도 v1.1 이력은 없음). 재동의 화면은 없다. 약관 보기 모달은 긴 본문을 `.modal-content` 안에서 스크롤한다.
 - 회원가입은 `password_confirm` 일치 검증(프런트·서버 모두)과 `policy_versions`(화면이 동의한 약관 버전) 검증을 거친다. 약관 본문·버전은 `services/policies.py`가 관리하며 본문을 바꾸면 버전을 올린다.
 - 동의·철회 이력은 `user_policy_consents`에 행을 추가해 남긴다(가입 시 service/privacy/marketing, 마이페이지 마케팅 변경 시 marketing).
 - 가입 직후 이메일 인증 링크(`user_email_verify` 토큰, 24시간)를 보내며 인증 전에는 올바른 비밀번호여도 `EMAIL_NOT_VERIFIED`로 로그인할 수 없다. 재발송은 60초 간격이며 응답은 계정 존재 여부를 숨긴다.
@@ -241,7 +243,7 @@ npm run dev
 - 비밀번호 변경·재설정·탈퇴 신청은 `auth_version`을 올리고 해당 회원의 모든 리프레시 토큰을 폐기한다. 로그아웃은 해당 로그인 세션(family)을 폐기한다. 만료 후 하루 지난 행은 매시간 정리 작업이 삭제한다.
 - 비밀번호 변경·재설정 후 `auth_version`을 증가시켜 기존 토큰을 무효화한다.
 - 탈퇴 요청은 `pending_deletion`으로 바꾸고 7일 이내 로그인 시 복구할 수 있다.
-- FastAPI lifespan 작업(`main.py`의 `run_cleanup_once`)이 매시간 만료 고객 계정·미인증 계정·만료 리프레시 토큰·요청 제한 기록을 한 트랜잭션으로 정리한다. Postgres `pg_try_advisory_xact_lock`으로 서버가 여러 대여도 한 대만 실행한다.
+- FastAPI lifespan 작업(`main.py`의 `run_cleanup_once`)이 매시간 만료 고객 계정·미인증 계정·만료 리프레시 토큰·요청 제한 기록·미결제 주문·5년 지난 결제 주문을 한 트랜잭션으로 정리한다. Postgres `pg_try_advisory_xact_lock`으로 서버가 여러 대여도 한 대만 실행한다.
 - 요청 제한(`core/rate_limit.py`): 로그인 실패는 접속 IP당 15분에 20회(공용 IP를 고려해 넉넉하게, 올바른 로그인은 세지 않음), 메일 발송 요청(가입·재발송·아이디 찾기·비밀번호 재설정)은 IP당 시간당 15회·대상 이메일당 시간당 5회, 가입은 IP당 시간당 10회다. 초과 시 429 `RATE_LIMITED`와 `Retry-After`. 토큰 확인 계열(재발급·이메일 인증 확정·비밀번호 재설정 확정·잠금 해제·탈퇴 취소, 관리자 재발급은 별도 버킷)은 접속 IP당 15분에 4xx 실패 30회까지이며 정상 요청과 동시 탭 경합(`REFRESH_IN_PROGRESS`)은 세지 않는다. 접속 IP는 `core/client_ip.py`가 `TRUSTED_PROXY_IPS`에 든 프록시가 붙인 `X-Forwarded-For`에서만 계산한다.
 - 계정 잠금 해제는 메일 링크가 `/user/unlock` 화면을 열고 버튼을 눌러야 `POST /api/users/unlock`이 실행된다(메일 링크 미리보기로 해제되지 않도록).
 - 마케팅 수신 동의는 회원가입과 마이페이지에서 변경할 수 있다.
@@ -264,7 +266,7 @@ npm run dev
 | `GET` | `/api/users/me` | 현재 고객 조회 |
 | `PUT` | `/api/users/me/password` | 비밀번호 변경 |
 | `PUT` | `/api/users/me/marketing-consent` | 마케팅 동의 변경 |
-| `PUT` | `/api/users/me/profile` | 닉네임·이름·휴대폰 수정 |
+| `PUT` | `/api/users/me/profile` | 닉네임 수정 |
 | `POST` | `/api/users/me/email-change` | 이메일 변경 요청(비밀번호 확인 후 새 이메일로 확인 메일) |
 | `POST` | `/api/users/email-change/confirm` | 확인 링크 토큰으로 이메일 변경 완료 |
 | `DELETE` | `/api/users/me` | 7일 유예 탈퇴 신청 |
@@ -274,7 +276,7 @@ npm run dev
 
 ### 배송지 주소록
 
-- 회원당 최대 10개(`MAX_ADDRESSES`, 초과 409 `ADDRESS_LIMIT_REACHED`). 항목: 명칭(1~20자)·받는 분·연락처·우편번호·주소·상세주소·기본 배송지 여부. 받는 분·연락처·주소 검증은 주문 배송지와 같은 공통 모델(`core/address.py`의 `AddressFields`)을 쓴다.
+- 회원당 최대 10개(`MAX_ADDRESSES`, 초과 409 `ADDRESS_LIMIT_REACHED`). 항목: 명칭(1~20자)·받는 분·연락처·우편번호·주소·상세주소·기본 배송지 여부. 받는 분·연락처·주소 검증은 주문 배송지와 같은 공통 모델(`core/address.py`의 `AddressFields`)을 쓴다. 우편번호(숫자 5자리)·주소·상세주소는 필수이며, 단독주택처럼 상세주소가 없으면 '상세 주소 없음'(`no_address_detail`, DB 컬럼 없이 요청에만 있고 저장된 상세주소가 비어 있으면 화면이 체크 상태로 복원)을 골라야 비울 수 있다. 우편번호·기본 주소는 카카오(다음) 우편번호 서비스(`components/user/postcode-search-modal.jsx`, 스크립트 `t1.kakaocdn.net/.../postcode.v2.js`, API 키 없음)를 화면 안 모달로 띄워 검색으로만 채우고(읽기 전용 칸), 도로명 주소에 법정동·아파트명을 괄호로 붙인다. 서버는 값이 검색으로 채워졌는지 알 수 없어 형식만 검증한다. 필수화 이전에 저장된 배송지를 주문서에서 고르면 주문 전에 보완 안내를 띄운다(2026-10-01 testuser01의 기존 주문·주소록은 시청 주소로 보정해 남은 불완전 데이터 없음).
 - 첫 배송지는 자동으로 기본 배송지이고, 기본 배송지는 DB 부분 고유 인덱스(`uq_user_addresses_default`)로 회원당 1개를 보장한다. 기본 배송지를 삭제하면 가장 최근에 추가한 배송지가 기본이 된다. 기본 배송지를 수정할 때 기본 해제는 무시된다(다른 배송지를 기본으로 지정해야 바뀜). 개수 확인·기본 지정은 회원 행을 `FOR UPDATE`로 잠가 동시 요청에도 지켜진다. 남의 배송지는 404.
 - 마이 페이지 '배송지 관리'(`features/user-auth/address-book.jsx`)에서 추가·수정·삭제(삭제 확인 모달)·기본 지정을 하고, 주문서와 입력 칸·검증을 공유한다(`components/user/address-fields.jsx`, `config/address.js`). 주문은 배송지를 주문 기록에 복사해 저장하므로 주소록을 바꾸거나 지워도 지난 주문은 그대로다.
 - API: `GET/POST /api/users/me/addresses`, `PUT/DELETE /api/users/me/addresses/{id}`, `PUT /api/users/me/addresses/{id}/default`.
@@ -285,13 +287,14 @@ npm run dev
 
 ### 상품 상세 화면
 
+- 판매 중이 아닌 상품(삭제·비노출·카테고리 비활성)의 상세는 404 `PRODUCT_NOT_ON_SALE` '판매가 종료된 상품입니다.', 없는 번호는 404 `PRODUCT_NOT_FOUND`. 주문 내역에서 판매 종료 상품을 눌렀을 때 이 안내가 보인다.
 - 상단: 이미지(좌) · 상품명, 별점(후기 실데이터), 가격, 배송비, 정보 행(배송·판매자·수량), 총 상품금액, `찜 | 장바구니 | 구매하기`. 브레드크럼은 없다. 배송 요약 문구는 `config/shop-policy.js`의 `DELIVERY_SUMMARY`.
 - 하단: 고정 탭(상품설명·상세정보·후기·문의, 활성 밑줄이 구분선과 겹치게 `margin-bottom:-1px`)과 구역. 페이지 배경은 다른 고객 화면과 같은 흰색 단일 톤이며 상세용 CSS는 `index.css` 끝의 '상품 상세' 블록 하나로 통합돼 있다.
 
 ### 후기·문의
 
-- 후기: 해당 상품을 `paid` 주문으로 산 로그인 고객만 작성(서버가 주문 내역으로 확인, 미구매 403 `REVIEW_NOT_PURCHASED`). 고객당 상품 1건이며 본인 후기만 수정·삭제한다. 별점 1~5, 내용 10~1000자. 작성자는 닉네임 첫 글자만 보이고 탈퇴 회원은 '탈퇴한 회원'으로 표시한다. 목록·평점 요약(개수·평균·최근 6개월 평균)은 비로그인도 조회할 수 있고 상세 상단 별점·탭 개수에 그대로 쓴다. API: `GET/POST /api/products/{id}/reviews`, `GET /api/products/{id}/reviews/eligibility`, `PUT/DELETE /api/reviews/{id}`.
-- 문의: 로그인 고객 누구나 작성(5~1000자, 비밀글 선택), 본인 문의만 삭제. 비밀글은 작성자 본인에게만 내용·답변이 보이고 다른 사람에게는 '비밀글입니다.'로 표시한다. 관리자는 `/inquiries` 화면(`GET /api/admin/inquiries`, `PUT /api/admin/inquiries/{id}/answer`)에서 전체 내용을 보고 답변한다. 작성은 IP당 시간당 20회로 제한한다.
+- 후기: 해당 상품을 `paid` 주문으로 사고 그 주문이 배송완료(`delivery_status=delivered`)된 로그인 고객만 작성(쿠팡·컬리처럼 배송완료 후 작성. 서버가 주문 내역으로 확인, 미구매 403 `REVIEW_NOT_PURCHASED`, 배송 전 403 `REVIEW_NOT_DELIVERED`, 작성 자격 조회 `reason`은 `ok`·`not_purchased`·`not_delivered`·`already_reviewed`). 고객당 상품 1건이며 본인 후기만 수정·삭제한다. 별점 1~5, 내용 10~1000자. 작성자는 닉네임 첫 글자만 보이고 탈퇴 회원은 '탈퇴한 회원'으로 표시한다. 목록·평점 요약(개수·평균·최근 6개월 평균)은 비로그인도 조회할 수 있고 상세 상단 별점·탭 개수에 그대로 쓴다. API: `GET/POST /api/products/{id}/reviews`, `GET /api/products/{id}/reviews/eligibility`, `PUT/DELETE /api/reviews/{id}`.
+- 문의: 로그인 고객 누구나 작성(5~1000자, 비밀글 선택), 본인 문의만 삭제. 비밀글은 작성자 본인에게만 내용·답변이 보이고 다른 사람에게는 '비밀글입니다.'로 표시한다. 관리자는 `/inquiries` 화면(`GET /api/admin/inquiries?status=pending|answered&q=&page=&page_size=`, `PUT /api/admin/inquiries/{id}/answer`)에서 전체 내용을 보고 답변한다. 탭은 답변 대기(오래된 순)·답변 완료(최근 답변 순)이며 응답 `counts`로 탭별 건수(검색어 적용)를 보여 준다. 검색 `q`(최대 100자)는 상품명·문의 내용·작성자 닉네임 부분 일치(ILIKE, `%`·`_`는 글자 그대로)다. 목록은 20건 단위 요약 행이고 행을 펼쳐 답변하며, 하단은 관리자 공용 `ProductPagination`(처음·이전·번호·다음·마지막)을 쓴다. 수십만 건으로 늘면 `pg_trgm` 인덱스를 검토한다. 작성은 IP당 시간당 20회로 제한한다.
 - 후기·문의 내용은 텍스트로만 렌더링한다(HTML 미허용).
 - 배송·교환·반품·환불 안내 문구는 `frontend/src/config/shop-policy.js`에 있으며 포트폴리오용 테스트 사이트라는 유의사항을 포함한다.
 
@@ -300,8 +303,9 @@ npm run dev
 - 흐름: 상세 '구매하기' 또는 장바구니 '주문하기'(로그인 필요) → 주문서(`/checkout`)에서 배송지 입력 → `POST /api/orders`(배송지 포함, 미입력·형식 오류 422)가 상품 가격을 서버에서 다시 조회해 금액을 계산하고 `pending` 주문(주문번호 `ARAM-YYYYMMDD-...`)을 만든다 → 프런트가 토스 결제창(SDK `https://js.tosspayments.com/v2/standard`, `features/checkout/toss-payments.js`)을 연다 → 성공 시 `/payment/success`가 `POST /api/orders/confirm`으로 서버 승인 요청 → 서버가 주문의 본인 여부·금액 일치를 확인하고 토스 승인 API(`/v1/payments/confirm`, 주문번호를 `Idempotency-Key`로 사용)를 호출해 `paid`로 바꾸며, 장바구니에서 주문했으면 해당 상품만 장바구니에서 제거한다.
 - 금액·상품명은 클라이언트 값을 믿지 않는다. 금액 불일치는 주문을 `failed`로 바꾸고 거부한다. 같은 결제 승인 요청을 다시 보내도(새로고침) 이미 `paid`이고 `payment_key`가 같으면 같은 결과를 돌려준다.
 - 주문 테이블은 가격·상품명·이미지 스냅샷을 저장하고, 회원·상품이 삭제돼도 거래 기록이 남도록 `ON DELETE SET NULL`이다. 결제하지 않은 `pending`·`failed` 주문은 하루 뒤 정리 작업이 삭제한다. 주문 생성은 IP당 시간당 30회로 제한한다.
-- 마이 페이지 '주문한 제품'은 `GET /api/orders`의 결제 완료 주문을 표시한다.
+- 고객 주문 조회 `GET /api/orders?months=&page=&page_size=`: 결제 완료 주문만 최신순, `months`는 3·6·12만 허용(라우터는 `int`로 받고 서비스가 검증해 그 외는 422 `INVALID_ORDER_PERIOD`; `Literal[3, 6, 12]`로 선언하면 쿼리 문자열 "3"이 거부되므로 쓰지 않는다, 한국 시간 기준 N개월 전 같은 날 0시부터, 생략 시 전체 기간), `page_size` 기본 5·최대 20, `from`·`to`(쿼리 이름, YYYY-MM-DD)는 둘 다 지정해야 하며 시작일 ≤ 종료일, 최근 5년(`ORDER_HISTORY_MONTHS=60`) 안, 미래 불가, `months`와 함께 쓸 수 없다(위반 시 422 `INVALID_ORDER_DATE_RANGE`·`INVALID_ORDER_PERIOD`, 검증은 `order_period_range`). 응답 `orders`·`total`·`page`. 마이 페이지는 `page_size=3`으로 최근 3건, 주문 내역 페이지는 기간·페이지 단위로 조회한다. 전자상거래법상 대금결제·재화 공급 기록은 5년 보관 대상이므로 결제 완료 주문은 5년간 보관하고 그 뒤 정리 작업이 삭제한다.
 - 배송: 결제 승인 시 `delivery_status=paid`(결제완료)이며 관리자가 주문 관리 화면(`GET /api/admin/orders`, `PUT /api/admin/orders/{order_number}/delivery-status`)에서 상품준비중 → 배송중 → 배송완료로 **한 단계씩만** 변경한다(건너뛰기·되돌리기 409 `INVALID_DELIVERY_TRANSITION`). 배송중·배송완료 시각을 기록하고 마이 페이지 주문 내역에 4단계 진행 표시와 배송지를 보여준다. 실제 택배사·송장 연동은 없다(포트폴리오용 더미 배송). 배송지 입력 기능 이전 주문은 배송지가 없다.
+- 보관기간: 결제 완료 주문은 5년 보관 후 매시간 정리 작업(`purge_expired_orders`)이 삭제한다(한국 시간 5년 전 같은 날 0시 이전 결제, 고객 날짜 지정 조회 하한과 같음, 주문 상품은 CASCADE).
 - 아직 없는 것: 환불·결제 취소 API, 재고 관리, 토스 웹훅(결제창 이탈 후 승인 누락 보정), 영수증. 실제 결제 전 이 항목과 전자상거래법상 거래기록 보관 정책을 설계한다.
 
 ## 단일 관리자 인증
@@ -379,8 +383,10 @@ $env:PYTHONPATH=(Resolve-Path .\src).Path
 - `013`: 상품 복원 감사 유형
 - `014`: `products.image_data` 제거와 `image_path` 필수화
 - `015`: 고객 `marketing_consent` 추가, 실제 DB 적용 완료
+- `028`: `users.name`·`phone` 제거(적용 전 값이 저장된 회원이 없음을 확인, 적용 스크립트가 값이 있으면 중단, 재실행 안전), 실제 DB 적용 완료. 적용: `scripts/apply_drop_user_profile_fields.py`, 확인: `scripts/check_drop_user_profile_fields.py`
+- `027`: 약관 v1.1 시행에 맞춰 이메일 인증된 active 회원에게 service·privacy v1.1 동의 이력 추가(재실행 안전, 실제 DB 적용 완료 4명×2건). 적용: `scripts/apply_policy_v1_1_backfill.py`, 확인: `scripts/check_policy_v1_1_backfill.py`
 - `026`: `user_addresses`(배송지 주소록, 기본 배송지 부분 고유 인덱스) 생성과 `users.postcode`·`address`·`address_detail` 제거(적용 전 주소 데이터가 없음을 확인), 실제 DB 적용 완료. 적용: `scripts/apply_user_addresses.py`, 확인: `scripts/check_user_addresses.py`
-- `025`: `users`에 `name`·`phone` 추가(당시 주소 컬럼 3개도 추가했다가 026에서 제거, 재실행 안전, 기존 회원은 NULL), 실제 DB 적용 완료. 적용: `scripts/apply_user_profile_fields.py`, 확인: `scripts/check_user_profile_fields.py`
+- `025`: `users`에 `name`·`phone` 추가(당시 주소 컬럼 3개도 추가했다가 026에서 제거, 재실행 안전, 기존 회원은 NULL), 실제 DB 적용 완료, 028에서 다시 제거. 적용: `scripts/apply_user_profile_fields.py`, 확인: `scripts/check_user_profile_fields.py`(028 이후에는 `profile_columns_ok=false`가 정상이라 검증 명령에서 제외)
 - `024`: `orders`에 배송지(`recipient_*`·`postcode`·`address*`·`delivery_memo`)와 `delivery_status`·`shipped_at`·`delivered_at` 컬럼 추가(재실행 안전, 기존 주문은 배송지 없이 `paid` 유지), 실제 DB 적용 완료. 적용: `scripts/apply_order_shipping.py`, 확인: `scripts/check_order_shipping.py`
 - `023`: `product_reviews`·`product_inquiries` 추가(재실행 안전), 실제 DB 적용 완료. 적용: `scripts/apply_reviews_and_inquiries.py`, 확인: `scripts/check_reviews_and_inquiries.py`
 - `021`: `wishlist_items`, `022`: `orders`·`order_items` 추가(재실행 안전), 실제 DB 적용 완료. 적용: `scripts/apply_wishlist_and_orders.py`, 확인: `scripts/check_wishlist_and_orders.py`
@@ -408,8 +414,9 @@ $env:PYTHONPATH=(Resolve-Path .\src).Path
 .\.venv\Scripts\python.exe scripts\check_wishlist_and_orders.py
 .\.venv\Scripts\python.exe scripts\check_reviews_and_inquiries.py
 .\.venv\Scripts\python.exe scripts\check_order_shipping.py
-.\.venv\Scripts\python.exe scripts\check_user_profile_fields.py
+.\.venv\Scripts\python.exe scripts\check_drop_user_profile_fields.py
 .\.venv\Scripts\python.exe scripts\check_user_addresses.py
+.\.venv\Scripts\python.exe scripts\check_policy_v1_1_backfill.py
 .\.venv\Scripts\python.exe scripts\check_admin_refresh_tokens.py
 .\.venv\Scripts\python.exe scripts\check_smtp.py
 ```
@@ -435,8 +442,13 @@ npm run build
 - **프록시**: 리버스 프록시 뒤에 배포하면 `TRUSTED_PROXY_IPS`에 프록시 IP·대역을 넣어야 로그인 제한·메일 제한이 실제 접속자 IP 기준으로 동작한다(비우면 모든 사용자가 프록시 IP 하나로 보임). 프록시는 `X-Forwarded-For`를 덧붙이는 방식이어야 하며 배포 환경에서 로그인 제한이 사용자별로 걸리는지 확인한다.
 - `AUTH_COOKIE_SECURE=true`(https), `TRUSTED_PROXY_IPS`(리버스 프록시 IP), `ACCESS_TOKEN_EXPIRE_MINUTES`(권장 15) 확인.
 - 로컬 `backend/.env`의 `ACCESS_TOKEN_EXPIRE_MINUTES`는 15다(2026-09-30 확인). 배포 환경에도 같은 값(또는 생략해 기본값)을 쓴다.
-- 토스페이먼츠 실제 키로 교체, 결제 성공·실패 URL이 실제 도메인인지 확인.
+- 토스페이먼츠 실제 키로 교체. 결제 성공·실패 URL은 `toss-payments.js`가 `window.location.origin`으로 만들므로 따로 바꿀 필요 없다.
+- **관리자 경로는 번들에 포함된다**: `VITE_` 변수는 빌드 시 JS에 그대로 박히므로 `VITE_ADMIN_BASE_PATH`는 공개 번들을 받은 누구나 찾을 수 있다(2026-10-02 `dist` 확인). 실제 보호는 서버의 관리자 토큰 검증이며, 더 숨기려면 관리자 화면을 별도 빌드·서브도메인으로 분리하거나 IP 허용 목록을 둔다.
 - `AUTH_SECRET_KEY`를 바꾸면 발급된 모든 토큰·메일 링크가 무효가 된다.
+- **API 문서 노출**: `/docs`(Swagger UI)·`/redoc`·`/openapi.json`은 폴더가 아니라 FastAPI가 자동으로 만드는 URL이다. 배포에서는 `FastAPI(docs_url=None, redoc_url=None, openapi_url=None)`로 셋 다 끈다(`docs_url`만 끄면 나머지 둘은 남는다).
+- **`.env` 우선순위**: `core/config.py`가 `load_dotenv(..., override=True)`라 서버에 `backend/.env`가 있으면 플랫폼 환경변수보다 우선한다. 배포 서버에는 `.env` 파일을 두지 않거나 `override=False`로 바꾼다.
+- **환경변수 템플릿(선택)**: `backend/.env.example`은 `.gitignore`로 제외돼 저장소에 없다. 배포에는 필요 없고, 새 PC에서 클론할 때 변수 이름을 알려 주는 양식이 필요할 때만 실제 값 없이 추적한다(변수 목록은 이 문서 '환경변수' 절이 대신한다).
+- **보안 헤더**: 백엔드·프런트 응답에 `X-Content-Type-Options`·`Strict-Transport-Security`·CSP 같은 헤더가 없다. 리버스 프록시(또는 CDN)에서 추가한다.
 
 ## 다음 작업 후보와 미구현 범위
 

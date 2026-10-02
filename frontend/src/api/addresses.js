@@ -3,7 +3,7 @@
 import { request } from './user-auth.js'
 
 // 화면의 camelCase 배송지를 서버 형식으로 변환
-function toBody({ label, recipientName, recipientPhone, postcode, address, addressDetail, isDefault = false }) {
+function toBody({ label, recipientName, recipientPhone, postcode, address, addressDetail, noAddressDetail = false, isDefault = false }) {
   return {
     label,
     recipient_name: recipientName,
@@ -11,6 +11,7 @@ function toBody({ label, recipientName, recipientPhone, postcode, address, addre
     postcode,
     address,
     address_detail: addressDetail,
+    no_address_detail: noAddressDetail,
     is_default: isDefault,
   }
 }

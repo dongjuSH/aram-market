@@ -25,7 +25,7 @@ function LogoutIcon() {
 }
 
 
-// 관리 화면 이동 메뉴(현재 화면을 제외한 나머지만 표시)
+// 관리 화면 이동 메뉴(항상 전부 표시하고 현재 화면 메뉴는 강조)
 const ADMIN_MENU = [
   { key: 'products', label: '상품 관리', path: ADMIN_PRODUCTS_PATH },
   { key: 'orders', label: '주문 관리', path: ADMIN_ORDERS_PATH },
@@ -51,11 +51,23 @@ function AdminHeader({ user, onNavigate, current = 'products' }) {
         <p><strong>{user.username || 'admin'}</strong> 관리자</p>
       </div>
       <nav className="account-actions" aria-label="관리자 메뉴">
-        {ADMIN_MENU.filter((menu) => menu.key !== current).map((menu) => (
-          <button key={menu.key} className="account-actions__site" type="button" onClick={() => onNavigate(menu.path)}>
-            <span>{menu.label}</span>
-          </button>
-        ))}
+        {ADMIN_MENU.map((menu) => {
+          const isCurrent = menu.key === current
+          // 상품 등록·수정 화면처럼 같은 메뉴의 하위 화면이면 강조만 하고 목록으로 돌아갈 수 있게 둔다
+          const isOnPage = isCurrent && window.location.pathname === menu.path
+          return (
+            <button
+              key={menu.key}
+              className={`account-actions__site${isCurrent ? ' is-current' : ''}`}
+              type="button"
+              aria-current={isCurrent ? 'page' : undefined}
+              disabled={isOnPage}
+              onClick={() => onNavigate(menu.path)}
+            >
+              <span>{menu.label}</span>
+            </button>
+          )
+        })}
         <button className="account-actions__site" type="button" onClick={openCustomerSite}>
           <SiteIcon />
           <span>사이트로 바로가기</span>

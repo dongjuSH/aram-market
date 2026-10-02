@@ -1,6 +1,6 @@
 // 고객이 공개 상품 상세내용과 관련 상품을 조회하는 페이지
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import WishlistLoginModal from '../components/common/wishlist-login-modal.jsx'
 import { saveCheckoutDraft } from '../features/checkout/checkout.js'
 import { addToCart, MAX_QUANTITY, toggleWishlist, useShopping } from '../features/cart/shopping-store.js'
@@ -22,6 +22,62 @@ const DETAIL_TABS = [
   { id: 'product-inquiries', label: '문의' },
 ]
 
+
+// 별점 설명 i 버튼: 마우스를 올리거나 키보드로 이동하면 바로, 터치 기기는 탭으로 말풍선을 열고 닫음(바깥 누르기·Esc로 닫기)
+function RatingInfo({ text }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const wrapRef = useRef(null)
+  const isHoveringRef = useRef(false) // 마우스로 이미 열린 상태에서 클릭해도 닫히지 않게 구분
+
+  useEffect(() => {
+    if (!isOpen) return undefined
+    const closeOnOutside = (event) => {
+      if (!wrapRef.current?.contains(event.target)) setIsOpen(false)
+    }
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setIsOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOnOutside)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutside)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [isOpen])
+
+  return (
+    <span
+      ref={wrapRef}
+      className="catalog-rating__info-wrap"
+      onPointerEnter={(event) => {
+        if (event.pointerType !== 'mouse') return
+        isHoveringRef.current = true
+        setIsOpen(true)
+      }}
+      onPointerLeave={(event) => {
+        if (event.pointerType !== 'mouse') return
+        isHoveringRef.current = false
+        setIsOpen(false)
+      }}
+    >
+      <button
+        className="catalog-rating__info"
+        type="button"
+        aria-label="최근 6개월 평균 별점 안내"
+        aria-expanded={isOpen}
+        aria-describedby={isOpen ? 'rating-info-tooltip' : undefined}
+        onFocus={() => setIsOpen(true)}
+        onBlur={() => setIsOpen(false)}
+        onClick={() => {
+          if (!isHoveringRef.current) setIsOpen((current) => !current)
+        }}
+      >
+        i
+      </button>
+      {isOpen && <span id="rating-info-tooltip" className="catalog-rating__tooltip" role="tooltip">{text}</span>}
+    </span>
+  )
+}
 
 // 경로의 변경 불가능한 상품 ID 기반 공개 상품 상세 조회
 function ProductDetailPage({ onNavigate }) {
@@ -130,7 +186,7 @@ function ProductDetailPage({ onNavigate }) {
                     {reviewSummary.recent_average !== null && (
                       <span className="catalog-rating__recent">
                         (최근 6개월 {reviewSummary.recent_average.toFixed(2)}
-                        <span className="catalog-rating__info" role="img" aria-label="최근 6개월 평균 별점입니다" title="최근 6개월 동안 등록된 후기의 평균 별점입니다.">i</span>)
+                        <RatingInfo text="최근 6개월 동안 등록된 후기의 평균 별점입니다." />)
                       </span>
                     )}
                     <span className="catalog-rating__divider" aria-hidden="true" />

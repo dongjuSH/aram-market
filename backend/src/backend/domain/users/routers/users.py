@@ -5,7 +5,6 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from backend.core.client_ip import get_client_ip
 from backend.core.dependencies import USER_ACCESS_COOKIE, require_user_token
 from backend.core.errors import api_error
-from backend.core.config import settings
 from backend.core.problems import problem_response
 from backend.core.rate_limit import check_limit, enforce_limit, guard_failures, record_attempt
 from backend.core.security import clear_auth_cookie, set_auth_cookie
@@ -40,7 +39,7 @@ def issue_login_cookie(response: Response, result: dict) -> dict:
         response,
         USER_REFRESH_COOKIE,
         result.pop("refresh_token"),
-        max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
+        session_only=True,  # 브라우저를 닫으면 로그인 해제(서버의 최대 유지기간은 REFRESH_TOKEN_EXPIRE_DAYS)
         path=USER_REFRESH_COOKIE_PATH,
     )
     result.pop("token_type", None)
@@ -250,7 +249,7 @@ async def cancel_withdrawal(
     return issue_login_cookie(response, result)
 
 
-# 닉네임·이름·휴대폰·주소 수정
+# 닉네임 수정
 @router.put("/me/profile", status_code=status.HTTP_200_OK)
 async def update_profile(
     request: UpdateProfileRequest,

@@ -2,8 +2,11 @@
 
 import base64
 import re
+from typing import Annotated
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+from backend.core.validators import MAX_DB_ID
 
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif"}  # 화면에서 허용하는 이미지 MIME 형식
@@ -31,7 +34,7 @@ def validate_image_data_value(value: str | None) -> str | None:
 class ProductWriteRequest(BaseModel):
     visible: bool
     display_order: int = Field(ge=1, le=2_147_483_647)
-    category_id: int = Field(gt=0)
+    category_id: int = Field(gt=0, le=MAX_DB_ID)
     name: str = Field(min_length=1, max_length=50)
     code: str = Field(min_length=1, max_length=50)
     price: int = Field(ge=0, le=9_999_999_999_999)
@@ -39,7 +42,7 @@ class ProductWriteRequest(BaseModel):
     image_name: str = Field(min_length=1, max_length=255)
     image_description: str | None = Field(default=None, max_length=200)
     detail_html: str = Field(default="", max_length=200_000)
-    related_product_ids: list[int] = Field(default_factory=list, max_length=2)
+    related_product_ids: list[Annotated[int, Field(gt=0, le=MAX_DB_ID)]] = Field(default_factory=list, max_length=2)
     editor_upload_session_id: str | None = Field(default=None, pattern=UPLOAD_SESSION_PATTERN)
 
     # 상품명·코드·설명·파일명의 불필요한 양끝 공백 제거
@@ -99,8 +102,8 @@ class ProductUpdateRequest(ProductWriteRequest):
 # 에디터 본문 이미지의 Storage 업로드 입력
 class EditorImageUploadRequest(BaseModel):
     image_data: str = Field(min_length=1)
-    category_id: int = Field(gt=0)
-    product_id: int | None = Field(default=None, gt=0)
+    category_id: int = Field(gt=0, le=MAX_DB_ID)
+    product_id: int | None = Field(default=None, gt=0, le=MAX_DB_ID)
     upload_session_id: str = Field(pattern=UPLOAD_SESSION_PATTERN)
 
     _validate_image_data = field_validator("image_data")(validate_image_data_value)

@@ -30,6 +30,7 @@ export const USER_RESET_PASSWORD_PATH = `${USER_BASE_PATH}/reset-password`
 export const USER_VERIFY_EMAIL_PATH = `${USER_BASE_PATH}/verify-email`
 export const USER_UNLOCK_PATH = `${USER_BASE_PATH}/unlock`
 export const USER_MY_PAGE_PATH = USER_BASE_PATH
+export const USER_ORDERS_PATH = `${USER_BASE_PATH}/orders`
 export const USER_SUPPORTED_PATHS = new Set([
   USER_LOGIN_PATH,
   USER_SIGNUP_PATH,
@@ -37,6 +38,7 @@ export const USER_SUPPORTED_PATHS = new Set([
   USER_VERIFY_EMAIL_PATH,
   USER_UNLOCK_PATH,
   USER_MY_PAGE_PATH,
+  USER_ORDERS_PATH,
 ])
 
 // 로그인 뒤 돌아갈 화면을 외부 주소·로그인 계열 화면이 아닌 고객 화면으로 제한(장바구니 포함)
@@ -44,7 +46,7 @@ export function getSafeRedirectPath(next) {
   if (typeof next !== 'string' || !next.startsWith('/') || next.startsWith('//') || next.includes('\\')) return CUSTOMER_PRODUCTS_PATH
   const url = new URL(next, window.location.origin)
   if (url.origin !== window.location.origin) return CUSTOMER_PRODUCTS_PATH
-  const allowed = url.pathname === CUSTOMER_PRODUCTS_PATH || isCustomerProductDetailPath(url.pathname) || url.pathname === USER_MY_PAGE_PATH || url.pathname === CART_PATH || url.pathname === WISHLIST_PATH
+  const allowed = url.pathname === CUSTOMER_PRODUCTS_PATH || isCustomerProductDetailPath(url.pathname) || url.pathname === USER_MY_PAGE_PATH || url.pathname === USER_ORDERS_PATH || url.pathname === CART_PATH || url.pathname === WISHLIST_PATH
   return allowed ? `${url.pathname}${url.search}` : CUSTOMER_PRODUCTS_PATH
 }
 

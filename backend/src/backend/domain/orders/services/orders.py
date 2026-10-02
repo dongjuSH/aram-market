@@ -1,9 +1,12 @@
 # 주문 생성·결제 승인·주문 내역 비즈니스 규칙(가격은 항상 서버 상품 가격 기준)
 
+import calendar
 import hashlib
 import hmac
+import logging
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, status
 from sqlalchemy import delete, func, select
@@ -22,10 +25,51 @@ from backend.domain.users.models.users import User
 from backend.core.errors import api_error
 from backend.domain.users.services.users import UserService
 
+logger = logging.getLogger(__name__)
+
 STATUS_PENDING = "pending"
 STATUS_PAID = "paid"
 STATUS_FAILED = "failed"
 DELIVERY_FLOW = ("paid", "preparing", "shipping", "delivered")  # 결제완료 → 상품준비중 → 배송중 → 배송완료
+ORDER_PERIOD_MONTHS = (3, 6, 12)  # 고객 주문 목록 조회 기간(개월)
+ORDER_HISTORY_MONTHS = 60  # 날짜 직접 지정으로 조회할 수 있는 최대 과거(5년, 전자상거래법 거래기록 보관기간)
+KOREA_TIMEZONE = ZoneInfo("Asia/Seoul")
+
+
+# 오늘(한국 시간)에서 N개월 전 같은 날 0시(그 달에 같은 날이 없으면 말일), 예: 5월 31일의 3개월 전은 2월 말일
+def months_ago_start(months: int, now: datetime | None = None) -> datetime:
+    today = (now or datetime.now(timezone.utc)).astimezone(KOREA_TIMEZONE).date()
+    month_index = today.year * 12 + today.month - 1 - months
+    year, month = divmod(month_index, 12)
+    day = min(today.day, calendar.monthrange(year, month + 1)[1])
+    return datetime(year, month + 1, day, tzinfo=KOREA_TIMEZONE)
+
+
+# 조회 기간(개월 버튼 또는 시작일~종료일 직접 지정)을 결제 시각 범위 [이상, 미만)로 변환, 둘 다 없으면 전체 기간
+def order_period_range(
+    months: int | None, start_date: date | None, end_date: date | None, now: datetime | None = None
+) -> tuple[datetime | None, datetime | None]:
+    if months is not None:
+        if start_date or end_date or months not in ORDER_PERIOD_MONTHS:
+            raise api_error(status.HTTP_422_UNPROCESSABLE_ENTITY, "INVALID_ORDER_PERIOD", "조회 기간은 3개월·6개월·1년 중에서 선택해 주세요.")
+        return months_ago_start(months, now), None
+    if start_date is None and end_date is None:
+        return None, None
+    if start_date is None or end_date is None:
+        raise api_error(status.HTTP_422_UNPROCESSABLE_ENTITY, "INVALID_ORDER_DATE_RANGE", "조회 시작일과 종료일을 모두 선택해 주세요.")
+    today = (now or datetime.now(timezone.utc)).astimezone(KOREA_TIMEZONE).date()
+    earliest = months_ago_start(ORDER_HISTORY_MONTHS, now).date()
+    if start_date > end_date:
+        raise api_error(status.HTTP_422_UNPROCESSABLE_ENTITY, "INVALID_ORDER_DATE_RANGE", "조회 시작일이 종료일보다 늦을 수 없습니다.")
+    if start_date < earliest or end_date > today:
+        raise api_error(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "INVALID_ORDER_DATE_RANGE",
+            f"조회 기간은 최근 5년({earliest:%Y.%m.%d}~{today:%Y.%m.%d}) 안에서 선택해 주세요.",
+        )
+    lower = datetime.combine(start_date, datetime.min.time(), tzinfo=KOREA_TIMEZONE)
+    upper = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=KOREA_TIMEZONE)  # 종료일 하루 전체 포함
+    return lower, upper
 
 
 # 고객 주문·결제 서비스(인증은 고객 접근 토큰 검증을 그대로 사용)
@@ -213,15 +257,28 @@ class OrderService:
     async def _order_payload(self, order: Order) -> dict:
         return (await self._order_payloads([order]))[0]
 
-    # 결제가 완료된 내 주문을 최신순으로 반환
-    async def list_orders(self, token: str) -> dict:
+    # 결제가 완료된 내 주문을 최신순으로 페이지 단위 반환(기간 버튼 또는 직접 지정한 날짜 안의 결제만)
+    async def list_orders(
+        self, token: str, months: int | None, start_date: date | None, end_date: date | None, page: int, page_size: int
+    ) -> dict:
         user = await self.user_service._get_user_from_access_token(token)
+        lower, upper = order_period_range(months, start_date, end_date)
+        conditions = [Order.user_id == user.id, Order.status == STATUS_PAID]
+        if lower is not None:
+            conditions.append(Order.paid_at >= lower)
+        if upper is not None:
+            conditions.append(Order.paid_at < upper)
+        total = (await self.db.execute(select(func.count()).select_from(Order).where(*conditions))).scalar_one()
         orders = (
             await self.db.execute(
-                select(Order).where(Order.user_id == user.id, Order.status == STATUS_PAID).order_by(Order.paid_at.desc(), Order.id.desc()).limit(50)
+                select(Order)
+                .where(*conditions)
+                .order_by(Order.paid_at.desc(), Order.id.desc())
+                .limit(page_size)
+                .offset((page - 1) * page_size)
             )
         ).scalars().all()
-        return {"orders": await self._order_payloads(list(orders))}
+        return {"orders": await self._order_payloads(list(orders)), "total": total, "page": page}
 
     # 관리자용 결제 완료 주문 목록(배송 상태 필터, 구매자 닉네임 포함)
     async def admin_list(self, admin_token: str, delivery_status: str | None, page: int, page_size: int) -> dict:
@@ -273,4 +330,15 @@ class OrderService:
         result = await self.db.execute(delete(Order).where(Order.status != STATUS_PAID, Order.created_at < cutoff))
         if commit:
             await self.db.commit()
+        return result.rowcount or 0
+
+    # 거래기록 보관기간(전자상거래법 5년)이 지난 결제 완료 주문을 삭제(주문 상품은 CASCADE로 함께 삭제)
+    # 기준은 고객이 날짜 지정으로 조회할 수 있는 가장 이른 날(한국 시간 5년 전 같은 날 0시)과 같다
+    async def purge_expired_orders(self, now: datetime | None = None, commit: bool = True) -> int:
+        cutoff = months_ago_start(ORDER_HISTORY_MONTHS, now)
+        result = await self.db.execute(delete(Order).where(Order.status == STATUS_PAID, Order.paid_at < cutoff))
+        if commit:
+            await self.db.commit()
+        if result.rowcount:
+            logger.info("expired paid orders purged count=%s", result.rowcount)
         return result.rowcount or 0

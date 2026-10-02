@@ -6,7 +6,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-
 ENV_FILE = Path(__file__).resolve().parents[3] / ".env"  # 실행 위치와 무관한 backend/.env 경로
 load_dotenv(dotenv_path=ENV_FILE, override=True)
 
@@ -39,12 +38,9 @@ class Settings:
     auth_cookie_samesite: str = os.getenv("AUTH_COOKIE_SAMESITE", "lax").lower()  # lax, strict, none 중 하나
     toss_secret_key: str = os.getenv("TOSS_SECRET_KEY", "")  # 토스페이먼츠 시크릿 키(테스트는 test_sk_ 로 시작, 서버 전용)
     toss_api_base: str = os.getenv("TOSS_API_BASE", "https://api.tosspayments.com").rstrip("/")  # 결제 승인 API 주소
-    trusted_proxy_ips: tuple[str, ...] = tuple(  # X-Forwarded-For를 신뢰할 리버스 프록시 IP·대역(쉼표 구분, 비우면 직접 접속 IP만 사용)
-        item.strip() for item in os.getenv("TRUSTED_PROXY_IPS", "").split(",") if item.strip()
-    )
+    trusted_proxy_ips: tuple[str, ...] = tuple(item.strip() for item in os.getenv("TRUSTED_PROXY_IPS", "").split(",") if item.strip())  # X-Forwarded-For를 신뢰할 리버스 프록시 IP·대역(쉼표 구분, 비우면 직접 접속 IP만 사용)
     withdrawal_grace_days: int = int(os.getenv("WITHDRAWAL_GRACE_DAYS", "7"))  # 탈퇴 취소 가능 기간
     withdrawal_retention_days: int = int(os.getenv("WITHDRAWAL_RETENTION_DAYS", "0"))  # 유예 후 추가 보관기간
-    backend_public_url: str = os.getenv("BACKEND_PUBLIC_URL", "http://127.0.0.1:8000")  # 메일 링크용 API 주소
     frontend_url: str = os.getenv("FRONTEND_URL", "http://localhost:5173")  # 리디렉션용 화면 주소
     smtp_host: str = os.getenv("SMTP_HOST", "")  # 메일 공급자의 SMTP 호스트
     smtp_port: int = int(os.getenv("SMTP_PORT", "587"))  # STARTTLS 587, SSL 465

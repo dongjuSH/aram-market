@@ -2,9 +2,10 @@
 
 import { request } from './auth.js'
 
-// 문의 목록(답변 대기만 보기 선택)
-export function getAdminInquiries({ unanswered = false, page = 1 } = {}) {
-  return request(`/api/admin/inquiries?unanswered=${unanswered}&page=${page}&page_size=10`, { method: 'GET' })
+// 문의 목록(status: pending 답변 대기·answered 답변 완료, q: 상품명·내용·닉네임 검색)
+export function getAdminInquiries({ status = 'pending', q = '', page = 1, pageSize = 20 } = {}) {
+  const params = new URLSearchParams({ status, q, page: String(page), page_size: String(pageSize) })
+  return request(`/api/admin/inquiries?${params}`, { method: 'GET' })
 }
 
 // 답변 등록·수정

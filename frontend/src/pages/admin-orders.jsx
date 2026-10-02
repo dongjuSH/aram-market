@@ -107,7 +107,7 @@ function AdminOrdersPage({ onNavigate }) {
                   <div className="admin-orders__actions">
                     <span className={`delivery-badge delivery-badge--${order.delivery_status}`}>{getDeliveryLabel(order.delivery_status)}</span>
                     {next && (
-                      <button type="button" disabled={updatingId === order.order_id} onClick={() => advance(order, next.key)}>{next.label}(으)로 변경</button>
+                      <button type="button" disabled={updatingId === order.order_id} onClick={() => advance(order, next.key)}>{next.action}</button>
                     )}
                   </div>
                 </li>

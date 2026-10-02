@@ -1,25 +1,25 @@
-// 주문·배송 현황, 회원정보 수정, 수신 설정, 계정 관리를 제공하는 마이 페이지
+// 주문·배송 현황, 회원정보(수신 설정 포함), 배송지 관리, 계정 관리를 제공하는 마이 페이지
 
 import { useEffect, useState } from 'react'
 import { getOrders } from '../../api/orders.js'
-import { clearStoredUser, getCurrentUser, getStoredUser, storeUser, updateMarketingConsent } from '../../api/user-auth.js'
+import { clearStoredUser, getCurrentUser, getStoredUser, storeUser } from '../../api/user-auth.js'
 import Modal from '../../components/common/modal.jsx'
 import CustomerAccountShell from '../../components/user/customer-account-shell.jsx'
 import ChangePasswordModal from './change-password-modal.jsx'
 import DeleteAccountModal from './delete-account-modal.jsx'
 import AddressBook from './address-book.jsx'
-import OrderHistory from './order-history.jsx'
+import OrderHistory, { RECENT_ORDER_COUNT } from './order-history.jsx'
 import ProfileCard from './profile-card.jsx'
 
 // 회원 정보 조회와 각 영역 상태 관리
 function UserMyPage({ onNavigate }) {
   const [user, setUser] = useState(getStoredUser)
   const [isLoading, setIsLoading] = useState(true)
-  const [isSavingMarketing, setIsSavingMarketing] = useState(false)
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [notice, setNotice] = useState('')
   const [orders, setOrders] = useState([])
+  const [orderTotal, setOrderTotal] = useState(0)
   const [isOrdersLoading, setIsOrdersLoading] = useState(true)
 
   useEffect(() => {
@@ -44,12 +44,14 @@ function UserMyPage({ onNavigate }) {
     }
   }, [onNavigate])
 
-  // 결제 완료된 주문 내역 조회(실패해도 마이 페이지의 다른 영역은 그대로 사용)
+  // 최근 결제 완료 주문 조회(실패해도 마이 페이지의 다른 영역은 그대로 사용)
   useEffect(() => {
     let isMounted = true
-    getOrders()
+    getOrders({ pageSize: RECENT_ORDER_COUNT })
       .then((result) => {
-        if (isMounted) setOrders(result.orders)
+        if (!isMounted) return
+        setOrders(result.orders)
+        setOrderTotal(result.total)
       })
       .catch(() => {})
       .finally(() => {
@@ -59,21 +61,6 @@ function UserMyPage({ onNavigate }) {
       isMounted = false
     }
   }, [])
-
-  const changeMarketingConsent = async (event) => {
-    const nextValue = event.target.checked
-    setIsSavingMarketing(true)
-    try {
-      const result = await updateMarketingConsent(nextValue)
-      setUser(result.user)
-      storeUser(result.user)
-      setNotice(nextValue ? '마케팅 정보 수신에 동의했습니다.' : '마케팅 정보 수신 동의를 철회했습니다.')
-    } catch (error) {
-      setNotice(error.message)
-    } finally {
-      setIsSavingMarketing(false)
-    }
-  }
 
   const finishPasswordChange = (message) => {
     clearStoredUser() // 서버가 비밀번호 변경·탈퇴 응답에서 인증 쿠키를 이미 삭제함
@@ -101,25 +88,9 @@ function UserMyPage({ onNavigate }) {
             </div>
           </section>
 
-          <OrderHistory orders={orders} isLoading={isOrdersLoading} />
+          <OrderHistory orders={orders} total={orderTotal} isLoading={isOrdersLoading} onNavigate={onNavigate} />
           <ProfileCard user={user} onUserChange={setUser} onNotice={setNotice} />
           <AddressBook />
-
-          <section className="my-page-card" aria-labelledby="preferences-title">
-            <div className="my-page-card__heading">
-              <div>
-                <p>PREFERENCES</p>
-                <h2 id="preferences-title">수신 설정</h2>
-              </div>
-            </div>
-            <label className="my-page-switch">
-              <span>
-                <strong>[선택] 마케팅 정보 수신 동의</strong>
-                <small>신상품, 혜택 및 이벤트 안내를 이메일로 받아봅니다.</small>
-              </span>
-              <input type="checkbox" role="switch" checked={Boolean(user?.marketing_consent)} onChange={changeMarketingConsent} disabled={isSavingMarketing} />
-            </label>
-          </section>
 
           <section className="my-page-card my-account-actions" aria-labelledby="account-actions-title">
             <div className="my-page-card__heading">

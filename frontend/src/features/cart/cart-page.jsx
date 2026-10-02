@@ -45,7 +45,7 @@ function CartPage({ onNavigate }) {
       <main id="catalog-main" className="cart-shell" tabIndex="-1">
         <header className="cart-heading">
           <p>SHOPPING CART</p>
-          <h1>장바구니 <span>{items.length}</span></h1>
+          <h1>장바구니{items.length > 0 && <> <span>{items.length}</span></>}</h1>
         </header>
 
         {!isLoggedIn && (
