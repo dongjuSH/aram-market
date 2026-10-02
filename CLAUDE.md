@@ -8,7 +8,7 @@
 
 ## 현재 기준 상태
 
-2026-09-30 기준 구현 범위(금일 작업 종료 시점):
+2026-10-02 기준 구현 범위:
 
 - 고객용 아람 마켓 상품 목록과 상품 상세 페이지
 - 고객 회원가입(비밀번호 확인, 이메일 소유 인증, 약관 버전·동의 이력), 로그인(이전 화면 복귀), 아이디 찾기, 비밀번호 재설정, 마이페이지
@@ -16,7 +16,7 @@
 - 고객 비밀번호 변경, 마케팅 수신 동의 변경, 7일 유예 회원 탈퇴·복구
 - 고정 아이디 `admin` 한 개만 사용하는 관리자 로그인
 - 관리자 상품 목록·검색·등록·수정·소프트 삭제·복원
-- 고객 장바구니(로그인 시 DB 저장), 찜 목록(마이 페이지), 토스페이먼츠 테스트 결제(주문 생성·서버 승인·주문 내역)
+- 고객 장바구니(로그인 시 DB 저장), 찜 목록(`/wishlist`), 토스페이먼츠 테스트 결제(주문 생성·서버 승인·주문 내역)
 - 상품 후기(배송완료된 구매 고객만)·문의(로그인 고객, 비밀글, 관리자 답변)
 - 주문서(배송지 입력)·배송 상태(결제완료 → 상품준비중 → 배송중 → 배송완료, 관리자 변경)·마이 페이지 배송 현황
 - 고객 헤더: 상단 회원가입·로그인(로그인 시 닉네임·로그아웃), 우측 찜 목록·장바구니·마이 페이지 아이콘(컬리 방식)
@@ -37,7 +37,7 @@
 
 자동 검증 기준:
 
-- 백엔드 단위 테스트 91개 통과(`tests/test_api_routes.py`가 앱 조립·인증 필요 경로·ID 범위를 DB 없이 확인)
+- 백엔드 단위 테스트 93개 통과(`tests/test_api_routes.py`가 앱 조립·인증 필요 경로·ID 범위·헬스 체크·검색어 이스케이프를 DB 없이 확인)
 - Python `compileall` 통과
 - 프런트 `oxlint` 통과
 - Vite 프로덕션 빌드 통과
@@ -146,7 +146,8 @@ npm run dev
 - 고객 상품 목록: `http://localhost:5173/`
 - 고객 로그인: `http://localhost:5173/user/login`
 - API: `http://127.0.0.1:8000`
-- API 문서: `http://127.0.0.1:8000/docs`
+- API 문서: `http://127.0.0.1:8000/docs`(`API_DOCS_ENABLED` 기본값: `FRONTEND_URL`이 http면 공개, https면 `/docs`·`/redoc`·`/openapi.json` 모두 끔)
+- 헬스 체크: `GET /api/health`(DB `SELECT 1` 성공 시 200 `{"status":"ok"}`, 실패 시 503 `DATABASE_UNAVAILABLE`). 예전 `/`(hello world)는 제거
 - 관리자 화면: 로컬 `VITE_ADMIN_BASE_PATH` 뒤에 `/login`
 
 프런트는 API를 같은 출처 `/api`로 호출하고 Vite 개발 서버가 `http://127.0.0.1:8000`으로 프록시한다(쿠키가 `localhost:5173` 출처로 저장되도록). 배포 시에도 리버스 프록시로 프런트와 `/api`를 같은 출처에 둔다.
@@ -156,6 +157,8 @@ npm run dev
 ## 환경변수
 
 실제 백엔드 값은 Git 제외 대상인 `backend/.env`, 관리자 프런트 경로는 `frontend/.env.local`에 둔다.
+
+우선순위: `core/config.py`는 `load_dotenv(override=False)`라 **이미 설정된 환경변수(배포 플랫폼·셸) > `backend/.env` > 코드 기본값** 순이다(2026-10-02 변경). 설정은 서버 시작 시 한 번 읽으므로 바꾸면 재시작한다. 프런트 `VITE_` 값은 빌드 시 JS에 고정되므로 바꾸면 다시 빌드한다.
 
 백엔드 주요 변수:
 
@@ -168,7 +171,9 @@ npm run dev
 - `PASSWORD_RESET_TOKEN_EXPIRE_MINUTES`
 - `WITHDRAWAL_GRACE_DAYS`: 현재 7일
 - `WITHDRAWAL_RETENTION_DAYS`: 현재 0일
-- `FRONTEND_URL`(메일 링크·CORS 허용 출처·쿠키 Secure 기본값 판단에 사용)
+- `FRONTEND_URL`(메일 링크·쿠키 Secure·API 문서 공개 여부·CORS 기본값 판단에 사용)
+- `CORS_ORIGINS`(선택, 쉼표 구분, 기본은 `FRONTEND_URL` 하나). 개발은 Vite 프록시로 같은 출처라 CORS가 필요 없다
+- `API_DOCS_ENABLED`(선택, 기본: `FRONTEND_URL`이 https가 아니면 true)
 - `EMAIL_VERIFICATION_TOKEN_EXPIRE_MINUTES`(기본 1440, 미인증 계정 보관시간), `EMAIL_VERIFICATION_RESEND_SECONDS`(기본 60)
 - `TOSS_SECRET_KEY`: 토스페이먼츠 시크릿 키(서버 전용, 현재 문서용 테스트 키 `test_sk_...`, 실제 결제 없음), `TOSS_API_BASE`(기본 https://api.tosspayments.com). 프런트 `frontend/.env.local`의 `VITE_TOSS_CLIENT_KEY`(공개 클라이언트 키, 테스트 `test_ck_...`). 운영 전 실제 가맹점 키로 교체하며 시크릿 키는 절대 Git에 올리지 않는다
 - `TRUSTED_PROXY_IPS`: X-Forwarded-For를 신뢰할 리버스 프록시 IP·대역(쉼표 구분, 기본 빈 값=직접 접속 IP만 사용). 프록시 뒤에 배포하면 반드시 설정
@@ -195,7 +200,8 @@ npm run dev
 - `/cart`: 장바구니(로그인 없이 조회·수정 가능, 주문하기는 로그인 필요)
 - `/user/unlock?token=...`: 잠금 해제 메일 링크. 화면의 버튼을 눌러야 POST로 해제
 - `/checkout`: 주문서(주문 상품 확인·배송지 선택 또는 새 배송지 입력·배송 요청사항·결제하기, 로그인 필요). 상세 '구매하기'와 장바구니 '주문하기'가 주문 초안(상품 id·이름·가격·이미지·수량만)을 `sessionStorage`에 저장하고 이 화면으로 이동한다(로그아웃·세션 만료 시 초안 삭제). 기본 배송지가 미리 선택되고 '배송지 변경'으로 주소록에서 고르거나 '새 배송지 입력'으로 전환한다. 주소록이 비어 있으면 새 배송지 입력으로 시작한다(받는 분·연락처 자동 입력 없음). 새 배송지는 '이 배송지를 주소록에 저장' 체크박스(주소록 여유가 있을 때 기본 체크, 명칭 입력 필요, 가득 차면 안내만 표시)를 켜면 **결제 승인 성공 후에만** `/payment/success`가 주소록에 추가한다(기존 배송지는 바뀌지 않으므로 교체 경고·확인 모달은 없음, 저장 실패는 결제 결과에 영향 없음). 입력·선택은 주문 초안에 보관돼 결제 취소 후 돌아와도 유지된다. '이전으로'는 장바구니 주문이면 장바구니로, 바로 구매면 해당 상품 상세로 돌아간다.
-- `/payment/success?paymentKey&orderId&amount`: 결제창 성공 리다이렉트(로그인 필요, 서버 승인 후 결과 표시), `/payment/fail`: 결제 실패·취소 안내
+- `/payment/success?paymentKey&orderId&amount`: 결제창 성공 리다이렉트(로그인 필요, 서버 승인 후 결과 표시), `/payment/fail?code=`: 결제 실패·취소 안내. 주소의 `message`는 누구나 바꿔 넣을 수 있어 쓰지 않고 `code`별 고정 문구(`payment-result.jsx`의 `PAYMENT_FAIL_MESSAGES`, 없으면 기본 문구)와 형식이 올바른 코드만 표시
+- 브라우저 탭 제목: `config/routes.js`의 `getPageTitle`이 `화면 이름 | 아람 마켓`으로 정하고(App이 경로 변경 때 설정), 상품 상세는 상품을 불러온 뒤 상품명으로 바꾼다
 
 관리자 화면:
 
@@ -349,6 +355,7 @@ $env:PYTHONPATH=(Resolve-Path .\src).Path
 - 비정상 종료 임시 파일은 `cleanup_product_image_drafts.py --retention-hours 24`로 정리한다.
 - 카테고리 변경 시 이미지 경로도 이동하며 DB 실패 시 원래 경로로 롤백한다.
 - 상세 HTML은 서버 허용 목록으로 다시 정리한다.
+- 상품·문의 검색어의 `%`·`_`·`\`는 와일드카드가 아닌 글자로 찾는다(`core/validators.py`의 `escape_like` + `ilike(..., escape="\\")`).
 - 상품 시각 API는 `+09:00`, 프런트 표시는 `Asia/Seoul` 기준이다.
 
 관리자 상품 API:
@@ -438,15 +445,15 @@ npm run build
 
 ## 배포 전 변경 필수 항목
 
-- **CORS**: `backend/main.py`의 `allow_origins`에 `http://localhost:5173`, `http://127.0.0.1:5173`이 고정돼 있다. 로컬 개발 중에는 유지하고, 배포 직전에 환경변수(예: `CORS_ORIGINS`)로 옮겨 실제 도메인만 허용한다.
+- **CORS**: 허용 출처는 `CORS_ORIGINS`(기본 `FRONTEND_URL`)뿐이다(2026-10-02 localhost 고정값 제거). 배포에서는 `FRONTEND_URL`을 실제 도메인으로 두면 된다. 프런트와 `/api`를 같은 도메인에 두면 CORS 자체가 적용되지 않는다.
 - **프록시**: 리버스 프록시 뒤에 배포하면 `TRUSTED_PROXY_IPS`에 프록시 IP·대역을 넣어야 로그인 제한·메일 제한이 실제 접속자 IP 기준으로 동작한다(비우면 모든 사용자가 프록시 IP 하나로 보임). 프록시는 `X-Forwarded-For`를 덧붙이는 방식이어야 하며 배포 환경에서 로그인 제한이 사용자별로 걸리는지 확인한다.
 - `AUTH_COOKIE_SECURE=true`(https), `TRUSTED_PROXY_IPS`(리버스 프록시 IP), `ACCESS_TOKEN_EXPIRE_MINUTES`(권장 15) 확인.
-- 로컬 `backend/.env`의 `ACCESS_TOKEN_EXPIRE_MINUTES`는 15다(2026-09-30 확인). 배포 환경에도 같은 값(또는 생략해 기본값)을 쓴다.
 - 토스페이먼츠 실제 키로 교체. 결제 성공·실패 URL은 `toss-payments.js`가 `window.location.origin`으로 만들므로 따로 바꿀 필요 없다.
 - **관리자 경로는 번들에 포함된다**: `VITE_` 변수는 빌드 시 JS에 그대로 박히므로 `VITE_ADMIN_BASE_PATH`는 공개 번들을 받은 누구나 찾을 수 있다(2026-10-02 `dist` 확인). 실제 보호는 서버의 관리자 토큰 검증이며, 더 숨기려면 관리자 화면을 별도 빌드·서브도메인으로 분리하거나 IP 허용 목록을 둔다.
 - `AUTH_SECRET_KEY`를 바꾸면 발급된 모든 토큰·메일 링크가 무효가 된다.
-- **API 문서 노출**: `/docs`(Swagger UI)·`/redoc`·`/openapi.json`은 폴더가 아니라 FastAPI가 자동으로 만드는 URL이다. 배포에서는 `FastAPI(docs_url=None, redoc_url=None, openapi_url=None)`로 셋 다 끈다(`docs_url`만 끄면 나머지 둘은 남는다).
-- **`.env` 우선순위**: `core/config.py`가 `load_dotenv(..., override=True)`라 서버에 `backend/.env`가 있으면 플랫폼 환경변수보다 우선한다. 배포 서버에는 `.env` 파일을 두지 않거나 `override=False`로 바꾼다.
+- **API 문서 노출**: `/docs`(Swagger UI)·`/redoc`·`/openapi.json`은 폴더가 아니라 FastAPI가 자동으로 만드는 URL이다. `FRONTEND_URL`이 https면 기본으로 셋 다 꺼진다(`API_DOCS_ENABLED=true`로만 다시 켬). 배포 후 세 주소가 404인지 확인한다.
+- **헬스 체크**: 배포 플랫폼 상태 확인 경로는 `/api/health`다.
+- **`.env` 우선순위**: 2026-10-02 `override=False`로 바꿔 플랫폼 환경변수가 `.env`보다 우선한다. 그래도 배포 서버에는 `.env` 파일을 두지 않는 것을 원칙으로 한다.
 - **환경변수 템플릿(선택)**: `backend/.env.example`은 `.gitignore`로 제외돼 저장소에 없다. 배포에는 필요 없고, 새 PC에서 클론할 때 변수 이름을 알려 주는 양식이 필요할 때만 실제 값 없이 추적한다(변수 목록은 이 문서 '환경변수' 절이 대신한다).
 - **보안 헤더**: 백엔드·프런트 응답에 `X-Content-Type-Options`·`Strict-Transport-Security`·CSP 같은 헤더가 없다. 리버스 프록시(또는 CDN)에서 추가한다.
 

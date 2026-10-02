@@ -16,6 +16,7 @@ from backend.domain.products.schemas.products import EditorImageUploadRequest, P
 from backend.domain.products.services.storage import product_storage
 from backend.domain.reviews.models.reviews import ProductReview
 from backend.core.errors import api_error
+from backend.core.validators import escape_like
 
 
 ALLOWED_DETAIL_TAGS = {"p", "br", "strong", "b", "em", "i", "u", "s", "h1", "h2", "h3", "ul", "ol", "li", "blockquote", "a", "img", "code", "pre", "hr"}
@@ -89,8 +90,8 @@ class ProductService:
         filters = [Product.status == product_status]
         normalized_keyword = keyword.strip()
         if normalized_keyword:
-            pattern = f"%{normalized_keyword}%"
-            filters.append(or_(Product.name.ilike(pattern), Product.code.ilike(pattern)))
+            pattern = f"%{escape_like(normalized_keyword)}%"
+            filters.append(or_(Product.name.ilike(pattern, escape="\\"), Product.code.ilike(pattern, escape="\\")))
 
         total = (await self.db.execute(select(func.count(Product.id)).where(*filters))).scalar_one()
         query = (
@@ -122,8 +123,8 @@ class ProductService:
             filters.append(Product.category_id == category_id)
         normalized_keyword = keyword.strip()
         if normalized_keyword:
-            pattern = f"%{normalized_keyword}%"
-            filters.append(Product.name.ilike(pattern))
+            pattern = f"%{escape_like(normalized_keyword)}%"
+            filters.append(Product.name.ilike(pattern, escape="\\"))
 
         base_query = select(Product).join(ProductCategory, Product.category_id == ProductCategory.id).where(*filters)
         total = (await self.db.execute(select(func.count()).select_from(base_query.subquery()))).scalar_one()

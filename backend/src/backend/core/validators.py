@@ -20,3 +20,8 @@ def normalize_phone(value: str) -> str:
     if not re.fullmatch(r"01[016789]\d{7,8}", digits):
         raise ValueError("휴대폰 번호를 010-1234-5678 형식으로 입력해 주세요.")
     return f"{digits[:3]}-{digits[3:-4]}-{digits[-4:]}"
+
+
+# LIKE 특수문자(%, _, 역슬래시)를 글자 그대로 찾도록 이스케이프(ilike(..., escape="\\")와 함께 사용)
+def escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")

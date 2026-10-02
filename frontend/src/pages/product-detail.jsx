@@ -12,7 +12,7 @@ import { DELIVERY_NOTICE, DELIVERY_SUMMARY, REFUND_NOTICE, TEST_SITE_NOTICE } fr
 import { getCatalogProduct } from '../api/products.js'
 import CatalogFooter from '../components/products/catalog-footer.jsx'
 import CatalogHeader from '../components/products/catalog-header.jsx'
-import { CHECKOUT_PATH, CUSTOMER_PRODUCT_DETAIL_PREFIX, getCustomerProductDetailPath, getLoginPath } from '../config/routes.js'
+import { CHECKOUT_PATH, CUSTOMER_PRODUCT_DETAIL_PREFIX, getCustomerProductDetailPath, getLoginPath, getPageTitle } from '../config/routes.js'
 import { HeartIcon } from '../components/common/icons.jsx'
 
 const DETAIL_TABS = [
@@ -145,6 +145,11 @@ function ProductDetailPage({ onNavigate }) {
       isMounted = false
     }
   }, [invalidProductId, productId])
+
+  // 브라우저 탭 제목을 상품명으로 표시
+  useEffect(() => {
+    if (product) document.title = getPageTitle(null, product.name)
+  }, [product])
 
   if (error) {
     return (

@@ -15,14 +15,10 @@ from backend.domain.products.services.availability import require_available_prod
 from backend.domain.reviews.services.reviews import mask_nickname
 from backend.domain.users.models.users import User
 from backend.core.errors import api_error
+from backend.core.validators import escape_like
 from backend.domain.users.services.users import UserService
 
 SECRET_PLACEHOLDER = "비밀글입니다."
-
-
-# LIKE 특수문자(%, _, 역슬래시)를 글자 그대로 찾도록 이스케이프
-def escape_like(value: str) -> str:
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 # 관리자 문의 검색 조건: 상품명·문의 내용·작성자 닉네임 중 하나라도 포함하면 일치(빈 검색어는 전체)

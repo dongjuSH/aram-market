@@ -12,7 +12,7 @@ SOURCE_ROOT = BACKEND_ROOT / "src"
 if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, status
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,6 +20,7 @@ from sqlalchemy import select, text
 
 from backend.core.config import settings
 from backend.core.database import Base, async_session, engine
+from backend.core.errors import api_error
 from backend.core.problems import http_exception_handler, unhandled_exception_handler, validation_exception_handler
 from backend.core.rate_limit import RateLimitEvent, purge_rate_limit_events  # noqa: F401 - 요청 제한 테이블 메타데이터 등록
 from backend.domain.products.models.products import Product, ProductAuditLog, ProductCategory, ProductRelation  # noqa: F401 - 상품 테이블 메타데이터 등록
@@ -126,7 +127,9 @@ app = FastAPI(
     title="상품 관리 관리자 API",
     description="단일 관리자 상품 관리와 고객용 공개 상품 조회 API입니다.",
     version="1.0.0",
-    docs_url="/docs",
+    docs_url="/docs" if settings.api_docs_enabled else None,  # 배포(https)에서는 API 문서 3종을 모두 끔
+    redoc_url="/redoc" if settings.api_docs_enabled else None,
+    openapi_url="/openapi.json" if settings.api_docs_enabled else None,
     lifespan=lifespan,
 )
 
@@ -138,23 +141,23 @@ app.add_exception_handler(Exception, unhandled_exception_handler)
 # CORS 및 미들웨어 설정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=list(
-        {
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            settings.frontend_url.rstrip("/"),
-        }
-    ),
+    allow_origins=list(settings.cors_origins),  # CORS_ORIGINS(기본 FRONTEND_URL)만 허용
     allow_credentials=True,
     allow_methods=["*"],  # GET, POST 등 모든 요청 방식 허용
     allow_headers=["*"],  # 모든 통신 헤더 허용
 )
 
 
-# 서버 실행 상태 확인용 기본 헬스 체크 엔드포인트
-@app.get("/")
-def read_root():
-    return {"message": "hello world"}
+# 배포 플랫폼 상태 확인용 헬스 체크(DB 연결까지 확인, 실패 시 503)
+@app.get("/api/health", include_in_schema=False)
+async def health_check():
+    try:
+        async with async_session() as session:
+            await session.execute(text("SELECT 1"))
+    except Exception as error:
+        logger.exception("health check database query failed")
+        raise api_error(status.HTTP_503_SERVICE_UNAVAILABLE, "DATABASE_UNAVAILABLE", "데이터베이스에 연결할 수 없습니다.") from error
+    return {"status": "ok"}
 
 
 # 라우터 등록

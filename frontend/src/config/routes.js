@@ -71,3 +71,30 @@ export const ADMIN_SUPPORTED_PATHS = new Set([
   ADMIN_PRODUCT_CREATE_PATH,
   ADMIN_PRODUCT_EDIT_PATH,
 ])
+
+const SITE_TITLE = '아람 마켓'
+const PAGE_TITLES = {
+  [CART_PATH]: '장바구니',
+  [WISHLIST_PATH]: '찜한 상품',
+  [CHECKOUT_PATH]: '주문서',
+  [PAYMENT_SUCCESS_PATH]: '결제 완료',
+  [PAYMENT_FAIL_PATH]: '결제 실패',
+  [USER_LOGIN_PATH]: '로그인',
+  [USER_SIGNUP_PATH]: '회원가입',
+  [USER_RESET_PASSWORD_PATH]: '비밀번호 재설정',
+  [USER_VERIFY_EMAIL_PATH]: '이메일 인증',
+  [USER_UNLOCK_PATH]: '계정 잠금 해제',
+  [USER_MY_PAGE_PATH]: '마이 페이지',
+  [USER_ORDERS_PATH]: '주문 내역',
+  [ADMIN_LOGIN_PATH]: '관리자 로그인',
+  [ADMIN_PRODUCTS_PATH]: '상품 관리',
+  [ADMIN_PRODUCT_CREATE_PATH]: '상품 등록',
+  [ADMIN_PRODUCT_EDIT_PATH]: '상품 수정',
+  [ADMIN_ORDERS_PATH]: '주문 관리',
+  [ADMIN_INQUIRIES_PATH]: '문의 관리',
+}
+
+// 브라우저 탭 제목: 화면 이름 | 아람 마켓(상품 목록은 대표 문구, 상세는 상품명을 따로 설정)
+export function getPageTitle(path, pageName = PAGE_TITLES[path]) {
+  return pageName ? `${pageName} | ${SITE_TITLE}` : `${SITE_TITLE} | 좋은 상품으로 더 나은 일상`
+}

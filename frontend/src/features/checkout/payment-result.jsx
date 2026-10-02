@@ -67,10 +67,19 @@ export function PaymentSuccessPage({ onNavigate }) {
   )
 }
 
-// 결제 실패·취소 리다이렉트: 결제사가 전달한 사유를 그대로 안내
+// 결제사 실패 코드별 안내(주소의 message는 누구나 바꿔 넣을 수 있어 화면에 그대로 쓰지 않음)
+const PAYMENT_FAIL_MESSAGES = {
+  PAY_PROCESS_CANCELED: '결제를 취소했습니다. 주문서에서 다시 결제할 수 있어요.',
+  PAY_PROCESS_ABORTED: '결제가 중단되었습니다. 잠시 후 다시 시도해 주세요.',
+  REJECT_CARD_COMPANY: '카드사에서 결제를 거절했습니다. 카드 정보를 확인하거나 다른 카드를 이용해 주세요.',
+}
+const DEFAULT_PAYMENT_FAIL_MESSAGE = '결제가 완료되지 않았습니다. 다시 시도하거나 다른 결제 수단을 이용해 주세요.'
+
+// 결제 실패·취소 리다이렉트: 결제사 오류 코드에 맞는 고정 문구와 (형식이 올바르면) 코드만 표시
 export function PaymentFailPage({ onNavigate }) {
-  const params = new URLSearchParams(window.location.search)
-  const message = params.get('message') || '결제가 취소되었거나 실패했습니다.'
+  const code = new URLSearchParams(window.location.search).get('code') || ''
+  const safeCode = /^[A-Z0-9_]{1,60}$/.test(code) ? code : ''
+  const message = PAYMENT_FAIL_MESSAGES[safeCode] || DEFAULT_PAYMENT_FAIL_MESSAGE
   return (
     <CustomerAccountShell onNavigate={onNavigate} className="customer-account-page--auth">
       <section className="auth-panel auth-panel--login" aria-labelledby="payment-fail-title">
@@ -78,6 +87,7 @@ export function PaymentFailPage({ onNavigate }) {
           <p className="auth-eyebrow">PAYMENT</p>
           <h1 id="payment-fail-title">결제에 실패했습니다</h1>
           <p className="auth-description" role="alert">{message}</p>
+          {safeCode && <p className="auth-description">오류 코드: {safeCode}</p>}
         </header>
         <div className="signup-actions">
           <button className="primary-button" type="button" onClick={() => onNavigate(CHECKOUT_PATH, { replace: true })}>주문서로 돌아가기</button>

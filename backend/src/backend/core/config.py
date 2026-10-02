@@ -7,7 +7,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 ENV_FILE = Path(__file__).resolve().parents[3] / ".env"  # 실행 위치와 무관한 backend/.env 경로
-load_dotenv(dotenv_path=ENV_FILE, override=True)
+load_dotenv(dotenv_path=ENV_FILE, override=False)  # 이미 있는 환경변수(배포 플랫폼 설정)가 .env 값보다 우선
 
 
 FRONTEND_URL_DEFAULT = os.getenv("FRONTEND_URL", "http://localhost:5173")  # 쿠키 Secure 기본값 판단용 화면 주소
@@ -42,6 +42,10 @@ class Settings:
     withdrawal_grace_days: int = int(os.getenv("WITHDRAWAL_GRACE_DAYS", "7"))  # 탈퇴 취소 가능 기간
     withdrawal_retention_days: int = int(os.getenv("WITHDRAWAL_RETENTION_DAYS", "0"))  # 유예 후 추가 보관기간
     frontend_url: str = os.getenv("FRONTEND_URL", "http://localhost:5173")  # 리디렉션용 화면 주소
+    cors_origins: tuple[str, ...] = tuple(
+        item.strip().rstrip("/") for item in os.getenv("CORS_ORIGINS", FRONTEND_URL_DEFAULT).split(",") if item.strip()
+    )  # 브라우저 교차 출처 요청을 허용할 화면 주소(쉼표 구분, 기본은 FRONTEND_URL 하나)
+    api_docs_enabled: bool = _as_bool(os.getenv("API_DOCS_ENABLED"), not FRONTEND_URL_DEFAULT.startswith("https://"))  # /docs·/redoc·/openapi.json 공개 여부(https 화면이면 기본 끔)
     smtp_host: str = os.getenv("SMTP_HOST", "")  # 메일 공급자의 SMTP 호스트
     smtp_port: int = int(os.getenv("SMTP_PORT", "587"))  # STARTTLS 587, SSL 465
     smtp_username: str = os.getenv("SMTP_USERNAME", "")  # SMTP 인증 계정

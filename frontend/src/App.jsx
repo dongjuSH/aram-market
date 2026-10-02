@@ -35,6 +35,7 @@ import {
   PAYMENT_SUCCESS_PATH,
   getCustomerProductDetailPath,
   getLoginPath,
+  getPageTitle,
   isCustomerProductDetailPath,
   USER_LOGIN_PATH,
   USER_MY_PAGE_PATH,
@@ -96,6 +97,11 @@ function App() {
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [route])
+
+  // 화면이 바뀔 때 브라우저 탭 제목 변경(상품 상세는 상품을 불러온 뒤 상품명으로 다시 설정)
+  useEffect(() => {
+    document.title = getPageTitle(path)
+  }, [path])
 
   // History API 기반 새로고침 없는 페이지 이동
   const navigate = useCallback((nextPath, options = {}) => {

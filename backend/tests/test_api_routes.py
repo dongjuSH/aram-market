@@ -94,6 +94,40 @@ class ApiRouteTests(unittest.IsolatedAsyncioTestCase):
             await list_products(keyword="", page=1, page_size=10, product_status="bad", token="t", admin_service=Admin(), product_service=None)
         self.assertEqual(raised.exception.status_code, 422)
 
+    # 헬스 체크는 DB 조회 성공 시 200, 실패 시 503 DATABASE_UNAVAILABLE
+    async def test_health_check_reports_database_state(self):
+        from contextlib import asynccontextmanager
+        from unittest.mock import patch
+
+        class Session:
+            def __init__(self, fail):
+                self.fail = fail
+
+            async def execute(self, statement):
+                if self.fail:
+                    raise ConnectionError("db down")
+
+        def fake_session_factory(fail):
+            @asynccontextmanager
+            async def factory():
+                yield Session(fail)
+
+            return factory
+
+        with patch.object(main, "async_session", fake_session_factory(False)):
+            response = await self.client.get("/api/health")
+        self.assertEqual((response.status_code, response.json()), (200, {"status": "ok"}))
+        with patch.object(main, "async_session", fake_session_factory(True)), self.assertLogs("main", "ERROR"):
+            response = await self.client.get("/api/health")
+        self.assertEqual((response.status_code, response.json()["code"]), (503, "DATABASE_UNAVAILABLE"))
+
+    # 검색어의 %·_·역슬래시는 와일드카드가 아닌 글자 그대로 찾도록 이스케이프
+    def test_escape_like_treats_wildcards_as_literal_text(self):
+        from backend.core.validators import escape_like
+
+        self.assertEqual(escape_like("100%_a\\b"), "100\\%\\_a\\\\b")
+        self.assertEqual(escape_like("텀블러"), "텀블러")
+
 
 if __name__ == "__main__":
     unittest.main()

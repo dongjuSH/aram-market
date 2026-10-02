@@ -109,19 +109,25 @@ function ProfileCard({ user, onUserChange, onNotice }) {
           <p>ACCOUNT</p>
           <h2 id="profile-title">회원정보</h2>
         </div>
-        {mode === 'view' && (
-          <div className="profile-actions">
-            <button type="button" onClick={startEdit}>닉네임 변경</button>
-            <button type="button" onClick={startEmailChange}>이메일 변경</button>
-          </div>
-        )}
       </div>
 
       {mode === 'view' && (
         <>
           <dl className="profile-rows">
-            <div><dt>닉네임</dt><dd>{user.nickname}</dd></div>
-            <div><dt>이메일</dt><dd>{user.email}</dd></div>
+            <div>
+              <dt>닉네임</dt>
+              <dd>
+                <span>{user.nickname}</span>
+                <span className="profile-actions"><button type="button" onClick={startEdit}>닉네임 변경</button></span>
+              </dd>
+            </div>
+            <div>
+              <dt>이메일</dt>
+              <dd>
+                <span>{user.email}</span>
+                <span className="profile-actions"><button type="button" onClick={startEmailChange}>이메일 변경</button></span>
+              </dd>
+            </div>
           </dl>
           <label className="my-page-switch">
             <span>
