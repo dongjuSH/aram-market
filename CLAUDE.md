@@ -6,9 +6,66 @@
 
 사용자는 React와 FastAPI의 동작을 직접 이해하면서 구현하는 것이 목표다. 요청하지 않은 전체 코드 생성이나 대규모 구조 변경은 피하고, 기존 코드 기준으로 원인과 개념을 먼저 설명한 뒤 필요한 범위만 수정한다. 새로운 폴더·계층·라이브러리는 실제 필요가 생겼을 때 먼저 제안한다.
 
+## 지금 이어서 할 일 (2026-10-03 인계: 대여 노트북 → 개인 PC)
+
+이전 작업은 대여 노트북(macOS)에서 했고, 그 노트북은 포맷 후 반납한다. 대화 기록과 Claude 기억 파일은 넘어오지 않으므로 이 문서가 유일한 인계 자료다. 사용자는 개인 PC(Windows로 예상, 확인 필요)에서 이어서 작업한다.
+
+현재 상태:
+
+- 배포 전 코드 작업·Claude↔Codex 교차 검수 완료, 마지막 커밋 `66dac65`(원격 `main` 푸시 완료) 이후 이 인계 문서만 갱신됨.
+- DB 마이그레이션 001~030 모두 실제 Supabase 적용 완료. 관리자 2단계 인증은 노트북의 로컬 `AUTH_SECRET_KEY` 기준으로 등록돼 있음(운영 키로 바꾸면 재등록 필요).
+- 다음 단계는 **배포**다. 호스팅·도메인·절차는 아래 '배포 계획' 절에 확정돼 있다.
+
+개인 PC 첫 설정(사용자가 할 일 포함):
+
+1. Git, Python 3.14, Node 24 설치 → `git clone https://github.com/dongjuSH/product-management.git`.
+2. 노트북에서 옮겨 온 `backend/.env`, `frontend/.env.local`을 같은 위치에 둔다(Git·채팅·메신저로 옮기지 않는다. 비밀번호 관리자 보안 메모나 USB 사용). 값을 다시 받을 수 있는 것: `DATABASE_URL`·Supabase 키(Supabase 대시보드), `SENTRY_DSN`·`VITE_SENTRY_DSN`(Sentry 프로젝트 `aram-market-api`·`aram-market-web`의 Client Keys), 토스 테스트 키(토스 개발자센터). `VITE_ADMIN_BASE_PATH`는 노트북 값을 그대로 쓰거나 새로 정한다(문서·커밋에 남기지 않는다).
+3. 백엔드: `cd backend` → `python -m venv .venv` → 가상환경 활성화 → `pip install -r requirements.txt` → **`pip install "fastapi[standard]"`**(로컬 `fastapi dev` 명령용 개발 도구라 `requirements.txt`에는 없다. 없으면 "To use the fastapi command, please install fastapi[standard]" 오류. 대신 `uvicorn main:app --reload --host 127.0.0.1`로 띄워도 된다).
+4. 프런트: `cd frontend` → `npm ci` → `npm run dev`.
+5. 확인: 아래 '검증 명령'의 백엔드 테스트·`npm test`·`npm run lint`·`npm run build`, 로컬 화면에서 로그인·상품 상세 동작.
+6. 새 SSH 키는 **개인 PC에서 생성**한다(배포 서버 접속용, 개인키는 PC 밖으로 옮기지 않는다).
+
+Claude가 지킬 사용자 선호(이전 기억 파일에서 옮김):
+
+- 커밋·푸시는 사용자가 요청할 때만 한다. 커밋 요청에 푸시를 자동으로 붙이지 않는다.
+- 관리자 화면은 노트북 이상 데스크톱 기준이며 모바일 대응은 하지 않는다.
+- 쓰이지 않는 코드·CSS는 작업할 때마다 제거한다(재사용 가능성이 있으면 먼저 확인).
+- 결제·인증·동시성 변경은 아래 '작업 원칙'의 검증 원칙 1~7을 따른다.
+- **실제 배포 때 반드시 다시 안내할 것**: 운영(https)에서는 `ADMIN_MFA_REQUIRED`가 자동으로 켜지고 운영용 새 `AUTH_SECRET_KEY`로 기존 MFA 등록이 무효가 되므로, 배포 직후 관리자 로그인 전에 서버에서 `scripts/setup_admin_mfa.py`로 재등록해야 한다(안 하면 503 `ADMIN_MFA_NOT_CONFIGURED`로 관리자 로그인 불가).
+
+## 배포 계획 (2026-10-03 확정, 아직 진행 전)
+
+무료 조건(포트폴리오)에서 고른 구성. 근거로 확인한 공식 자료: Render 무료 웹 서비스는 2025-09부터 SMTP 25·465·587 차단(유료는 465·587 허용), Railway는 무료·Trial·Hobby에서 SMTP 차단(Pro부터 허용), Oracle Always Free는 포트 25만 기본 차단이며 Email Delivery 월 3,000통 무료.
+
+| 항목 | 결정 |
+|---|---|
+| 서버 | Oracle Cloud Always Free, **홈 리전 오사카**(무료 VM은 홈 리전에서만 생성 가능). 사용자의 다른 프로젝트가 같은 계정에서 AMD 무료 VM 1대를 쓰고 있으므로 **새 VM을 따로** 만든다(무료 한도: AMD `VM.Standard.E2.1.Micro` 최대 2대·각 1GB 메모리, ARM A1 총 2코어·12GB, 디스크 총 200GB·VM당 최소 47GB). ARM이 용량 부족이면 AMD Micro + 스왑 2GB |
+| OS·런타임 | Ubuntu 24.04, 시간대 Asia/Seoul, Python 3.14(uv로 설치), 서버에는 Node를 두지 않음 |
+| 프런트 | 개인 PC에서 `npm run build`(운영 `VITE_*` 값으로) → `frontend/dist`만 서버로 업로드(1GB VM에서 빌드하면 메모리 부족 위험) |
+| 백엔드 | systemd 서비스로 `uvicorn main:app --host 127.0.0.1 --port 8000`(작업 디렉터리 `backend`, 워커 1개, `Restart=always`). 8000은 외부에 열지 않음 |
+| 웹 서버 | nginx 한 대가 같은 도메인에서 정적 파일(`dist`)과 `/api` 프록시를 함께 처리하고, 그 밖의 경로는 `index.html`로 돌려줌(SPA fallback). 외부 공개 포트는 80·443만(Oracle 보안 목록 + 서버 방화벽) |
+| 도메인·HTTPS | DuckDNS 무료 서브도메인(공용 접미사 목록에 있어 Let's Encrypt 발급 한도 문제 없음) + certbot(Let's Encrypt, 자동 갱신) |
+| 메일 | 기존 SMTP(587) 유지. 서버에서 587 연결이 막히면 Oracle Email Delivery로 전환 |
+| DB·이미지 | 기존 Supabase 프로젝트 그대로(개발·운영 겸용, '실제 상용화 시 DB 분리' 절 참고) |
+| 오류 수집 | Sentry 기존 프로젝트, 배포 후 두 프로젝트의 Inbound Filters에서 Localhost 필터 켜기 |
+
+배포 순서:
+
+1. (사용자) 개인 PC에서 SSH 키 생성 → Oracle 콘솔(오사카)에서 VM 생성(Ubuntu 24.04, 공인 IP, 공개키 등록). 생성 화면을 Claude에게 보여 주면 값을 안내한다.
+2. (사용자) DuckDNS 서브도메인 생성 → VM 공인 IP 연결.
+3. (함께) 서버 기본 설정: 패키지 업데이트, 스왑, 시간대, 방화벽(80·443), Python 3.14(uv)·백엔드 코드 배치·가상환경, systemd 서비스, nginx, certbot.
+4. (함께) 서버에서 SMTP 587 연결 테스트 → SMTP 유지 또는 Email Delivery 전환.
+5. (사용자) 서버 `backend/.env`에 운영 값 입력: 새 `AUTH_SECRET_KEY`(32자 이상), `FRONTEND_URL=https://<도메인>`, `TRUSTED_PROXY_IPS=127.0.0.1`(같은 서버 nginx), 나머지는 로컬과 같음. `.env` 권한 600. 운영에서는 `API_DOCS_ENABLED`·`AUTH_COOKIE_SECURE`·`ADMIN_MFA_REQUIRED`·`SENTRY_ENVIRONMENT`가 https 기준으로 자동 설정된다.
+6. (함께) nginx에 보안 헤더(HSTS, `X-Content-Type-Options: nosniff`, `frame-ancestors`, `Referrer-Policy`)와 CSP(토스 `js.tosspayments.com`, 카카오 우편번호 `t1.kakaocdn.net`, Supabase Storage, Sentry `*.ingest.us.sentry.io` 허용, 처음엔 Report-Only로 확인 후 적용).
+7. (사용자) **관리자 2단계 인증 재등록**: 서버에서 `PYTHONPATH=src .venv/bin/python scripts/setup_admin_mfa.py`(새 `AUTH_SECRET_KEY` 기준). 이전 복구 코드는 무효가 된다.
+8. (함께) 배포 후 확인: `/docs`·`/redoc`·`/openapi.json` 404, `/api/health` 200, 인증 쿠키 `Secure`, 고객 로그인·관리자 2단계 로그인·토스 테스트 결제·메일 링크가 운영 도메인인지, 직접 주소 접속·새로고침(SPA fallback), 로그인 실패 제한이 실제 접속자 IP 기준인지, Sentry `production` 이벤트 수신.
+9. (사용자) Sentry Localhost 필터 켜기, (선택) 소스맵 업로드(`@sentry/vite-plugin`, 조직 slug `my-portfolio-bg`, `SENTRY_AUTH_TOKEN`).
+
+알려진 위험: Oracle 문서상 7일간 CPU(95백분위)·네트워크·메모리(A1만) 사용률이 모두 20% 미만이면 Always Free VM이 회수될 수 있다(유료 계정 예외 언급 없음). 서버 설정을 이 문서와 Git으로 재현 가능하게 유지하고, 데이터는 Supabase에 있으므로 VM이 사라져도 다시 만들면 된다. 배포 중 확정되는 nginx·systemd 설정은 저장소에 함께 기록한다(실제 도메인 외 비밀값 제외).
+
 ## 현재 기준 상태
 
-2026-10-02 기준 구현 범위:
+2026-10-03 기준 구현 범위:
 
 - 고객용 아람 마켓 상품 목록과 상품 상세 페이지
 - 고객 회원가입(비밀번호 확인, 이메일 소유 인증, 약관 버전·동의 이력), 로그인(이전 화면 복귀), 아이디 찾기, 비밀번호 재설정, 마이페이지
@@ -145,7 +202,7 @@ product-management/
 
 ## 로컬 실행
 
-백엔드와 프런트를 서로 다른 터미널에서 실행한다.
+백엔드와 프런트를 서로 다른 터미널에서 실행한다. `fastapi dev`는 `pip install "fastapi[standard]"`가 설치돼 있어야 한다(개발 도구라 `requirements.txt`에 넣지 않음). macOS·Linux에서는 가상환경이 활성화돼도 시스템 Python의 `fastapi`가 먼저 잡힐 수 있으니 `.venv/bin/fastapi dev main.py --host 127.0.0.1`처럼 가상환경 경로로 실행한다.
 
 ```powershell
 cd backend
@@ -312,6 +369,8 @@ npm run dev
 
 장바구니: 로그인 고객은 서버 DB(`cart_items`, 가격은 저장하지 않고 조회 시 현재 상품 가격·이름·이미지 사용, 판매 종료 상품은 목록에서 제외, 삭제 전까지 유지)에 저장하고, 비로그인은 브라우저 메모리에만 있어 새로고침하면 초기화된다. 로그인 직후 비로그인 장바구니는 `POST /api/cart/merge`로 계정에 합쳐지고 로그아웃하면 화면 상태를 비운다(`features/cart/shopping-store.js`). 찜(♡)은 장바구니와 별개 기능이며 현재는 상품 상세 화면에서만 할 수 있다. 로그인 고객만 상세 화면의 ♡로 찜할 수 있고(`wishlist_items`, 삭제 전까지 유지) 비로그인이면 안내 **모달**을 띄운 뒤 확인 시 로그인 페이지로 이동하며(로그인 후 상세로 복귀) 찜 저장소 함수 `toggleWishlist`는 로그인 고객 전용이다. 찜한 상품은 별도 `/wishlist` 페이지(헤더 하트 아이콘)에서 보고 장바구니 담기·찜 해제를 한다(마이 페이지에는 찜 영역이 없다). API: `GET /api/wishlist`, `PUT`·`DELETE /api/wishlist/{product_id}`.
 
+장바구니 API(로그인 고객, 수량은 상품당 1~99, 판매 중이 아닌 상품은 담기 거부·병합 시 건너뜀): `GET /api/cart`(목록), `POST /api/cart/items`(담기, 이미 있으면 수량 합산), `PUT /api/cart/items/{product_id}`(수량 변경), `DELETE /api/cart/items`(본문 `product_ids` 최대 100개 삭제), `POST /api/cart/merge`(로그인 직후 비로그인 장바구니 병합, 최대 100줄).
+
 ### 배송지 주소록
 
 - 회원당 최대 10개(`MAX_ADDRESSES`, 초과 409 `ADDRESS_LIMIT_REACHED`). 항목: 명칭(1~20자)·받는 분·연락처·우편번호·주소·상세주소·기본 배송지 여부. 받는 분·연락처·주소 검증은 주문 배송지와 같은 공통 모델(`core/address.py`의 `AddressFields`)을 쓴다. 우편번호(숫자 5자리)·주소·상세주소는 필수이며, 단독주택처럼 상세주소가 없으면 '상세 주소 없음'(`no_address_detail`, DB 컬럼 없이 요청에만 있고 저장된 상세주소가 비어 있으면 화면이 체크 상태로 복원)을 골라야 비울 수 있다. 우편번호·기본 주소는 카카오(다음) 우편번호 서비스(`components/user/postcode-search-modal.jsx`, 스크립트 `t1.kakaocdn.net/.../postcode.v2.js`, API 키 없음)를 화면 안 모달로 띄워 검색으로만 채우고(읽기 전용 칸), 도로명 주소에 법정동·아파트명을 괄호로 붙인다. 서버는 값이 검색으로 채워졌는지 알 수 없어 형식만 검증한다. 필수화 이전에 저장된 배송지를 주문서에서 고르면 주문 전에 보완 안내를 띄운다(2026-10-01 testuser01의 기존 주문·주소록은 시청 주소로 보정해 남은 불완전 데이터 없음).
@@ -332,7 +391,7 @@ npm run dev
 ### 후기·문의
 
 - 후기: 해당 상품을 `paid` 주문으로 사고 그 주문이 배송완료(`delivery_status=delivered`)된 로그인 고객만 작성(쿠팡·컬리처럼 배송완료 후 작성. 서버가 주문 내역으로 확인, 미구매 403 `REVIEW_NOT_PURCHASED`, 배송 전 403 `REVIEW_NOT_DELIVERED`, 작성 자격 조회 `reason`은 `ok`·`not_purchased`·`not_delivered`·`already_reviewed`). 고객당 상품 1건이며 본인 후기만 수정·삭제한다. 별점 1~5, 내용 10~1000자. 작성자는 닉네임 첫 글자만 보이고 탈퇴 회원은 '탈퇴한 회원'으로 표시한다. 목록·평점 요약(개수·평균·최근 6개월 평균)은 비로그인도 조회할 수 있고 상세 상단 별점·탭 개수에 그대로 쓴다. API: `GET/POST /api/products/{id}/reviews`, `GET /api/products/{id}/reviews/eligibility`, `PUT/DELETE /api/reviews/{id}`.
-- 문의: 로그인 고객 누구나 작성(5~1000자, 비밀글 선택), 본인 문의만 삭제. 비밀글은 작성자 본인에게만 내용·답변이 보이고 다른 사람에게는 '비밀글입니다.'로 표시한다. 관리자는 `/inquiries` 화면(`GET /api/admin/inquiries?status=pending|answered&q=&page=&page_size=`, `PUT /api/admin/inquiries/{id}/answer`)에서 전체 내용을 보고 답변한다. 탭은 답변 대기(오래된 순)·답변 완료(최근 답변 순)이며 응답 `counts`로 탭별 건수(검색어 적용)를 보여 준다. 검색 `q`(최대 100자)는 상품명·문의 내용·작성자 닉네임 부분 일치(ILIKE, `%`·`_`는 글자 그대로)다. 목록은 20건 단위 요약 행이고 행을 펼쳐 답변하며, 하단은 관리자 공용 `ProductPagination`(처음·이전·번호·다음·마지막)을 쓴다. 수십만 건으로 늘면 `pg_trgm` 인덱스를 검토한다. 작성은 IP당 시간당 20회로 제한한다.
+- 문의: 로그인 고객 누구나 작성(5~1000자, 비밀글 선택), 본인 문의만 삭제. 비밀글은 작성자 본인에게만 내용·답변이 보이고 다른 사람에게는 '비밀글입니다.'로 표시한다. 관리자는 `/inquiries` 화면(`GET /api/admin/inquiries?status=pending|answered&q=&page=&page_size=`, `PUT /api/admin/inquiries/{id}/answer`)에서 전체 내용을 보고 답변한다. 탭은 답변 대기(오래된 순)·답변 완료(최근 답변 순)이며 응답 `counts`로 탭별 건수(검색어 적용)를 보여 준다. 검색 `q`(최대 100자)는 상품명·문의 내용·작성자 닉네임 부분 일치(ILIKE, `%`·`_`는 글자 그대로)다. 목록은 20건 단위 요약 행이고 행을 펼쳐 답변하며, 하단은 관리자 공용 `ProductPagination`(처음·이전·번호·다음·마지막)을 쓴다. 수십만 건으로 늘면 `pg_trgm` 인덱스를 검토한다. 작성은 IP당 시간당 20회로 제한한다. 고객 문의 API: `GET /api/products/{id}/inquiries`(비로그인도 조회, 비밀글은 본인만 내용 표시), `POST /api/products/{id}/inquiries`(로그인), `DELETE /api/inquiries/{id}`(본인 문의만, 남의 문의는 404).
 - 후기·문의 내용은 텍스트로만 렌더링한다(HTML 미허용).
 - 배송·교환·반품·환불 안내 문구는 `frontend/src/config/shop-policy.js`에 있으며 포트폴리오용 테스트 사이트라는 유의사항을 포함한다.
 
@@ -341,6 +400,7 @@ npm run dev
 - 흐름: 상세 '구매하기' 또는 장바구니 '주문하기'(로그인 필요) → 주문서(`/checkout`)에서 배송지 입력 → `POST /api/orders`(배송지 포함, 미입력·형식 오류 422)가 상품 가격을 서버에서 다시 조회해 금액을 계산하고, 카드 결제 지원 범위(100~2,147,483,647원)를 확인한 뒤 `pending` 주문(주문번호 `ARAM-YYYYMMDD-...`)을 만든다 → 프런트가 토스 결제창(SDK `https://js.tosspayments.com/v2/standard`, `features/checkout/toss-payments.js`)을 연다 → 성공 시 `/payment/success`가 `POST /api/orders/confirm`으로 서버 승인 요청 → 서버가 주문의 본인 여부·금액 일치를 확인하고 토스 승인 API(`/v1/payments/confirm`, 주문번호를 `Idempotency-Key`로 사용)를 호출한다. 승인 완료 결과를 받으면 주문 행을 다시 잠가 최신 상태·결제키를 확인하고 로컬 커밋까지 성공한 뒤에만 완료를 응답하며, 이 구간의 오류는 결제 실패가 아니라 `PAYMENT_CONFIRMATION_PENDING`으로 재확인하게 한다. 완료 시 장바구니 주문에 포함된 상품만 장바구니에서 제거한다.
 - 토스 승인 오류 처리(2026-10-02 Codex 검수 반영): `toss.confirm_payment` 오류에는 토스 HTTP 상태(`gateway_status`)와 코드(`gateway_code`)가 담긴다. 4xx이면서 409·429가 아니고, 토스 오류 코드가 있으며, 그 코드가 `TOSS_UNCERTAIN_CODES`(`IDEMPOTENT_REQUEST_PROCESSING`·`ALREADY_PROCESSING_REQUEST`·`ALREADY_PROCESSED_PAYMENT`·내부 처리 오류 등)가 아닌 확정 거절만 `failed`로 바꾼다(결제키는 남김). 승인 응답이 200인데 JSON 객체가 아니면(깨진 본문·배열) `PAYMENT_RESPONSE_INVALID`, 그 밖의 예상 못 한 예외도 모두 불확정으로 처리한다. 그 밖의 오류(처리 중·이미 처리됨·5xx·429·연결 실패)나 200인데 응답이 주문과 다르면 실패로 확정하지 않고 즉시 `get_payment`로 조회해, 상태 `DONE`이고 주문번호·결제키·금액이 모두 맞으면(`payment_matches`) 완료 처리하고, 아니면 `pending` 그대로 503 `PAYMENT_CONFIRMATION_PENDING`("결제 결과를 확인하고 있습니다…")을 돌려준다.
 - 결제 승인 누락 보정: 서버는 토스 승인 요청 **직전에** `payment_key`와 첫 `payment_attempted_at`을 주문에 먼저 저장·커밋한다(토스 응답을 기다리는 동안 주문 행 잠금을 쥐지 않음, 동시 승인은 주문번호 멱등 키가 한 번만 처리. 같은 주문에 다른 결제키면 409 `PAYMENT_KEY_MISMATCH`). 매시간 정리 작업은 두 단계다(외부 호출 동안 DB 트랜잭션·연결·정리 잠금을 쥐지 않음). ① `run_cleanup_once`가 advisory xact lock 아래 짧은 트랜잭션으로 계정·토큰·요청 기록·주문을 정리하고 커밋, ② `reconcile_unconfirmed_payments`가 **주문 생성 시각이 아니라 승인 시도 시각 기준** 10분(`RECONCILE_AFTER`)이 지났는데 결제키가 남은 `pending`·`failed` 주문만 읽고, 잠금 없이 `GET /v1/payments/{paymentKey}`를 호출한 뒤 주문별 `FOR UPDATE` 짧은 트랜잭션으로 반영한다. `payment_matches`면 `paid`로 복구하며 이전 `failure_message`도 지운다. `ABORTED`·`EXPIRED`·`CANCELED`는 즉시 미결제로 확정하지만 404는 승인 직후 조회 지연일 수 있어 `payment_attempted_at`부터 하루(`NOT_FOUND_FINAL_AFTER`) 동안 결제키를 보존해 재조회하고, 그 뒤에도 404일 때만 `failed`·결제키 제거한다. `READY`·`IN_PROGRESS`도 다음 주기에 재확인하고 그 밖의 상태는 ERROR 로그로 수동 확인한다. 삭제는 하루 지난 미결제 주문 중 **결제키가 없는 것만** 대상으로 한다. `PAYMENT_CONFIRMATION_PENDING` 화면은 실패로 표시하지 않고 재주문 금지 안내와 동일 주문 재확인 버튼을 보여 준다.
+- 결제 금액 범위(2026-10-03 Codex 검수 반영): 상품 가격·주문 합계·결제 확인 금액·관리자 가격 입력을 모두 `core/validators.py`의 `MIN_CARD_PAYMENT_AMOUNT`(100원)~`MAX_ORDER_PAYMENT_AMOUNT`(2,147,483,647원)로 통일했다. 주문 합계가 범위를 벗어나면 결제창을 열기 전에 409 `ORDER_AMOUNT_NOT_SUPPORTED`. 금액 컬럼은 `BigInteger`다.
 - 금액·상품명은 클라이언트 값을 믿지 않는다. 금액 불일치는 주문을 `failed`로 바꾸고 거부한다. 같은 결제 승인 요청을 다시 보내도(새로고침) 이미 `paid`이고 `payment_key`가 같으면 같은 결과를 돌려준다.
 - 주문 테이블은 가격·상품명·이미지 스냅샷을 저장하고, 회원·상품이 삭제돼도 거래 기록이 남도록 `ON DELETE SET NULL`이다. 결제하지 않은 `pending`·`failed` 주문은 하루 뒤 정리 작업이 삭제한다. 주문 생성은 IP당 시간당 30회로 제한한다.
 - 고객 주문 조회 `GET /api/orders?months=&page=&page_size=`: 결제 완료 주문만 최신순, `months`는 3·6·12만 허용(라우터는 `int`로 받고 서비스가 검증해 그 외는 422 `INVALID_ORDER_PERIOD`; `Literal[3, 6, 12]`로 선언하면 쿼리 문자열 "3"이 거부되므로 쓰지 않는다, 한국 시간 기준 N개월 전 같은 날 0시부터, 생략 시 전체 기간), `page_size` 기본 5·최대 20, `from`·`to`(쿼리 이름, YYYY-MM-DD)는 둘 다 지정해야 하며 시작일 ≤ 종료일, 최근 5년(`ORDER_HISTORY_MONTHS=60`) 안, 미래 불가, `months`와 함께 쓸 수 없다(위반 시 422 `INVALID_ORDER_DATE_RANGE`·`INVALID_ORDER_PERIOD`, 검증은 `order_period_range`). 응답 `orders`·`total`·`page`. 마이 페이지는 `page_size=3`으로 최근 3건, 주문 내역 페이지는 기간·페이지 단위로 조회한다. 전자상거래법상 대금결제·재화 공급 기록은 5년 보관 대상이므로 결제 완료 주문은 5년간 보관하고 그 뒤 정리 작업이 삭제한다.
@@ -398,6 +458,7 @@ $env:PYTHONPATH=(Resolve-Path .\src).Path
 - 비정상 종료 임시 파일은 `cleanup_product_image_drafts.py --retention-hours 24`로 정리한다.
 - 카테고리 변경 시 이미지 경로도 이동하며 DB 실패 시 원래 경로로 롤백한다.
 - 상세 HTML은 서버 허용 목록으로 다시 정리한다. `<img>`는 자사 Supabase Storage 상품 이미지 버킷 주소(`product_storage.public_url("")`로 시작, `..` 불가)만 남기고 외부 이미지는 제거한다(2026-10-02 기존 상세 이미지 30개 모두 자사 주소 확인). 로고·배너는 프런트 `public/` 정적 파일이라 해당 없다.
+- 경로·본문의 모든 정수 ID(상품·문의·후기·주소·장바구니·관련 상품 등)는 1~`MAX_DB_ID`(2,147,483,647, PostgreSQL integer 상한) 범위만 받는다. 범위 밖 번호는 DB 오류(500) 대신 422 `VALIDATION_ERROR`(`tests/test_api_routes.py`가 확인).
 - 상품·문의 검색어의 `%`·`_`·`\`는 와일드카드가 아닌 글자로 찾는다(`core/validators.py`의 `escape_like` + `ilike(..., escape="\\")`).
 - 상품 시각 API는 `+09:00`, 프런트 표시는 `Asia/Seoul` 기준이다.
 
