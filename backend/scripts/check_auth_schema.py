@@ -14,6 +14,10 @@ EXPECTED_COLUMNS = {
     "created_at",
     "is_active",
     "auth_version",
+    "mfa_secret_encrypted",  # 029 관리자 2단계 인증
+    "mfa_enabled_at",
+    "mfa_last_used_step",
+    "mfa_recovery_code_hashes",
 }
 
 

@@ -1,5 +1,6 @@
 # 앱 조립(라우터 import)과 인증 필요 경로·ID 범위 검증을 DB 없이 확인하는 HTTP 수준 테스트
 
+import os
 import re
 import sys
 import unittest
@@ -8,6 +9,8 @@ from pathlib import Path
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+os.environ["SENTRY_DSN"] = ""  # 테스트 중 실제 Sentry로 오류를 보내지 않음(.env보다 우선)
+os.environ.setdefault("ADMIN_MFA_REQUIRED", "false")
 
 import main  # noqa: E402  (backend/main.py: 모든 라우터를 import해 문법·import 오류를 잡는다)
 from backend.core.database import get_db  # noqa: E402
@@ -20,6 +23,7 @@ PUBLIC_PREFIXES = (
 # 쿠키 없이도 접근할 수 있어야 하는 로그인·토큰·메일 계열 경로
 OPEN_PATHS = {
     "/api/admins/signin",
+    "/api/admins/signin/mfa",
     "/api/admins/signout",
     "/api/admins/token/refresh",
     "/api/users/signup",
@@ -127,6 +131,66 @@ class ApiRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(escape_like("100%_a\\b"), "100\\%\\_a\\\\b")
         self.assertEqual(escape_like("텀블러"), "텀블러")
+
+    # 관리자 2단계 인증 HTTP 흐름: 비밀번호 후에는 대기 쿠키만, 코드 확인 후 로그인 쿠키 발급·대기 쿠키 삭제
+    async def test_admin_mfa_flow_uses_httponly_pending_cookie(self):
+        from datetime import datetime, timezone
+
+        import pyotp
+
+        from backend.core.security import hash_password
+        from backend.domain.admins.models.admins import AdminAccount
+        from backend.domain.admins.services.admins import AdminAccountService
+        from backend.domain.admins.services.mfa import encrypt_secret, generate_secret
+        from backend.domain.admins.services.rate_limit import LoginRateLimiter
+
+        secret = generate_secret()
+        admin = AdminAccount(
+            id=1, username="admin", password_hash=hash_password("Password!1"), created_at=datetime.now(timezone.utc),
+            is_active=True, auth_version=0, mfa_secret_encrypted=encrypt_secret(secret),
+            mfa_enabled_at=datetime.now(timezone.utc), mfa_last_used_step=None, mfa_recovery_code_hashes=[],
+        )
+
+        class Result:
+            def scalar_one_or_none(self):
+                return admin
+
+        class Db:
+            def add(self, row):
+                pass
+
+            async def execute(self, statement):
+                return Result()
+
+            async def commit(self):
+                pass
+
+        service = AdminAccountService(Db())
+        service.limiter = LoginRateLimiter()
+        main.app.dependency_overrides[AdminAccountService] = lambda: service
+        self.addCleanup(main.app.dependency_overrides.pop, AdminAccountService, None)
+
+        response = await self.client.post("/api/admins/signin", json={"username": "admin", "password": "Password!1"})
+        self.assertEqual(response.json()["mfa_required"], True)
+        self.assertNotIn("mfa_token", response.json())
+        set_cookie = response.headers.get_list("set-cookie")
+        self.assertEqual(len(set_cookie), 1)
+        self.assertIn("admin_mfa_token=", set_cookie[0])
+        self.assertIn("HttpOnly", set_cookie[0])
+        self.assertIn("Path=/api/admins", set_cookie[0])
+
+        pending = set_cookie[0].split(";")[0].split("=", 1)[1]
+        response = await self.client.post(
+            "/api/admins/signin/mfa", json={"code": pyotp.TOTP(secret).now()}, cookies={"admin_mfa_token": pending}
+        )
+        self.assertEqual(response.status_code, 200)
+        cookies = " ".join(response.headers.get_list("set-cookie"))
+        self.assertIn("admin_access_token=", cookies)
+        self.assertIn("admin_refresh_token=", cookies)
+        self.assertIn('admin_mfa_token=""', cookies)  # 대기 쿠키 삭제
+
+        response = await self.client.post("/api/admins/signin/mfa", json={"code": "123456"})
+        self.assertEqual((response.status_code, response.json()["code"]), (401, "MFA_SESSION_EXPIRED"))
 
 
 if __name__ == "__main__":

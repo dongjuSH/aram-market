@@ -1,11 +1,14 @@
 # 관리자·사용자 인증 토큰 분리와 IP 로그인 제한 규칙 테스트
 
+import os
 import unittest
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from string import Template
 
-from fastapi import HTTPException, Response
+os.environ.setdefault("ADMIN_MFA_REQUIRED", "false")  # 테스트는 .env와 무관하게 MFA 미등록 관리자 로그인 허용(필수 동작은 개별 테스트에서 켬)
+
+from fastapi import HTTPException, Response  # noqa: E402
 from backend.core.security import (
     hash_refresh_token,
     clear_auth_cookie,
@@ -42,6 +45,10 @@ class FakeResult:
     def scalar_one_or_none(self):
         return self.value
 
+    # 요청 제한 조회(시도 횟수·가장 오래된 시각): 기록 없음
+    def one(self):
+        return (0, None)
+
 
 # 관리자 서비스가 사용하는 조회·커밋 기능만 제공하는 메모리 DB
 class FakeDatabase:
@@ -53,8 +60,11 @@ class FakeDatabase:
     def add(self, row):
         self.added.append(row)
 
-    async def execute(self, _query):
+    async def execute(self, _query, _params=None):
         return FakeResult(self.admin)
+
+    async def rollback(self):
+        pass
 
     async def get(self, _model, admin_id):
         return self.admin if self.admin and self.admin.id == admin_id else None
@@ -299,7 +309,7 @@ class UserServiceTests(unittest.IsolatedAsyncioTestCase):
             marketing_consent=False,
         )
         service = UserService(FakeDatabase(user))
-        token = create_token(user.id, "user_password_reset", 5, {"ver": user.auth_version})
+        token = create_token(user.id, "user_password_reset", 5, {"ver": user.auth_version, "email": user.email})
 
         with self.assertRaises(HTTPException) as raised:
             await service.reset_password(
@@ -344,6 +354,19 @@ class EmailVerificationAndPolicyTests(unittest.IsolatedAsyncioTestCase):
         result = await service.signin(UserSignInRequest(username="verify_user", password="CurrentPassword!1"))
         self.assertEqual(decode_token(result["access_token"], "user_access")["sub"], user.id)
         self.assertTrue(result["refresh_token"])
+
+    async def test_signin_locks_user_row_before_updating_failure_count(self):
+        user = self.make_user(email_verified_at=datetime.now(timezone.utc))
+        statements = []
+
+        class Database(FakeDatabase):
+            async def execute(self, query, params=None):
+                statements.append(query)
+                return await super().execute(query, params)
+
+        with self.assertRaises(HTTPException):
+            await UserService(Database(user)).signin(UserSignInRequest(username="verify_user", password="WrongPassword!1"))
+        self.assertIsNotNone(statements[0]._for_update_arg)
 
     async def test_email_verification_token_marks_user_verified_and_is_idempotent(self):
         user = self.make_user()
@@ -433,7 +456,7 @@ class RefreshFakeDatabase(FakeDatabase):
 
 # 메모리 DB의 토큰 행을 직접 다루도록 조회·폐기 헬퍼만 바꾼 서비스
 class RefreshTestService(UserService):
-    async def _get_refresh_row(self, token_hash):
+    async def _get_refresh_row(self, token_hash, lock=False):
         return next((row for row in self.db.rows if row.token_hash == token_hash), None)
 
     async def _revoke_family(self, family_id):
@@ -528,7 +551,7 @@ class AdminRefreshFakeDatabase(FakeDatabase):
 
 
 class AdminRefreshTestService(AdminAccountService):
-    async def _get_refresh_row(self, token_hash):
+    async def _get_refresh_row(self, token_hash, lock=False):
         return next((row for row in self.db.rows if row.token_hash == token_hash), None)
 
     async def _revoke_family(self, family_id):
@@ -718,7 +741,7 @@ class ProblemDetailsTests(unittest.TestCase):
 
 # 토큰 확인 계열 요청은 4xx 실패만 세고 동시 탭 경합은 세지 않는지 검증
 class GuardFailuresTests(unittest.IsolatedAsyncioTestCase):
-    async def test_only_client_failures_are_recorded(self):
+    async def test_only_failures_keep_the_reserved_attempt(self):
         from unittest.mock import AsyncMock, patch
 
         from backend.core import rate_limit
@@ -726,16 +749,55 @@ class GuardFailuresTests(unittest.IsolatedAsyncioTestCase):
         async def failing(code, status_code):
             raise HTTPException(status_code=status_code, detail={"code": code, "message": "x"})
 
-        with patch.object(rate_limit, "check_limit", AsyncMock()), patch.object(rate_limit, "record_attempt", AsyncMock()) as record:
+        db = FakeDatabase(None)
+        with patch.object(rate_limit, "reserve_attempt", AsyncMock(return_value=7)) as reserve, \
+                patch.object(rate_limit, "release_attempt", AsyncMock()) as release:
             with self.assertRaises(HTTPException):
-                await rate_limit.guard_failures(None, "n", "1.1.1.1", 5, 60, lambda: failing("INVALID_REFRESH_TOKEN", 401))
-            self.assertEqual(record.await_count, 1)
+                await rate_limit.guard_failures(db, "n", "1.1.1.1", 5, 60, lambda: failing("INVALID_REFRESH_TOKEN", 401))
+            release.assert_not_awaited()  # 실패는 예약 기록을 남김
             with self.assertRaises(HTTPException):
-                await rate_limit.guard_failures(None, "n", "1.1.1.1", 5, 60, lambda: failing("REFRESH_IN_PROGRESS", 401))
-            self.assertEqual(record.await_count, 1)
-            self.assertEqual(await rate_limit.guard_failures(None, "n", "1.1.1.1", 5, 60, AsyncMock(return_value="ok")), "ok")
-            self.assertEqual(record.await_count, 1)
+                await rate_limit.guard_failures(db, "n", "1.1.1.1", 5, 60, lambda: failing("REFRESH_IN_PROGRESS", 401))
+            self.assertEqual(release.await_count, 1)  # 동시 탭 경합은 지움
+            self.assertEqual(await rate_limit.guard_failures(db, "n", "1.1.1.1", 5, 60, AsyncMock(return_value="ok")), "ok")
+            self.assertEqual(release.await_count, 2)  # 정상 요청도 지움
+            with self.assertRaises(HTTPException):
+                await rate_limit.guard_failures(
+                    db, "n", "1.1.1.1", 5, 60, lambda: failing("EMAIL_NOT_VERIFIED", 403),
+                    is_failure=lambda error: error.detail["code"] == "INVALID_CREDENTIALS",
+                )
+            self.assertEqual(release.await_count, 3)  # 사용자 지정 기준에서 실패가 아니면 지움
+            self.assertEqual(reserve.await_count, 4)
 
+    async def test_reserve_serializes_bucket_before_counting(self):
+        from backend.core import rate_limit
+
+        statements = []
+
+        class Db(FakeDatabase):
+            async def execute(self, query, params=None):
+                statements.append((str(query), params))
+                return FakeResult(None)
+
+        await rate_limit.reserve_attempt(Db(None), "password-confirm-user", "41", 5, 900)
+        self.assertIn("pg_advisory_xact_lock", statements[0][0])  # 버킷 잠금이 횟수 조회보다 먼저
+        self.assertIn("count", statements[1][0].lower())
+
+    async def test_reserve_rejects_when_limit_is_reached(self):
+        from backend.core import rate_limit
+
+        class Full(FakeResult):
+            def one(self):
+                return (5, datetime.now(timezone.utc))
+
+        class Db(FakeDatabase):
+            async def execute(self, query, params=None):
+                return Full(None)
+
+        db = Db(None)
+        with self.assertRaises(HTTPException) as raised:
+            await rate_limit.reserve_attempt(db, "n", "v", 5, 900)
+        self.assertEqual(raised.exception.status_code, 429)
+        self.assertEqual(db.added, [])  # 한도 초과 요청은 기록하지 않음
 
 # 토스페이먼츠 승인 API 호출 결과 매핑 검증(네트워크 없이 MockTransport 사용)
 class TossConfirmTests(unittest.IsolatedAsyncioTestCase):
@@ -923,6 +985,16 @@ class ShippingRulesTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             DeliveryStatusRequest(status="paid")  # 되돌리기·임의 상태는 요청 자체가 불가
 
+    def test_order_total_is_rejected_before_opening_payment_window(self):
+        from backend.domain.orders.services.orders import ensure_supported_order_amount
+
+        for amount in (0, 99, 2_147_483_648):
+            with self.subTest(amount=amount), self.assertRaises(HTTPException) as raised:
+                ensure_supported_order_amount(amount)
+            self.assertEqual(raised.exception.detail["code"], "ORDER_AMOUNT_NOT_SUPPORTED")
+        ensure_supported_order_amount(100)
+        ensure_supported_order_amount(2_147_483_647)
+
     def test_delivery_flow_order(self):
         from backend.domain.orders.services.orders import DELIVERY_FLOW
 
@@ -1078,3 +1150,692 @@ class AddressBookRulesTests(unittest.TestCase):
         self.assertEqual((shipping.recipient_phone, shipping.delivery_memo), ("010-1234-5678", "문 앞"))
         with self.assertRaises(ValidationError):
             ShippingAddress(recipient_name="홍길동", recipient_phone="1", postcode="04001", address="서울특별시 마포구 아람로 12", no_address_detail=True)
+
+
+# 2단계 보강: 비밀번호 확인 실패 제한(B1)·보안 알림(B2)·재설정 링크 이메일 고정(B3)·잠금 해제 링크 1회용(B4)
+class AccountSecurityHardeningTests(unittest.IsolatedAsyncioTestCase):
+    def make_user(self, **overrides):
+        values = dict(
+            id=41,
+            username="secure_user",
+            password_hash=hash_password("CurrentPassword!1"),
+            nickname="보안사용자",
+            email="secure@example.com",
+            is_active=True,
+            status="active",
+            auth_version=0,
+            login_fail_count=0,
+            service_policy=True,
+            privacy_policy=True,
+            marketing_consent=False,
+        )
+        values.update(overrides)
+        return User(**values)
+
+    def patch_notice(self):
+        from unittest.mock import AsyncMock, patch
+
+        sender = AsyncMock(return_value=True)
+        patcher = patch("backend.domain.users.services.users.send_security_notice_email", sender)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return sender
+
+    def access_token(self, user):
+        return create_token(user.id, "user_access", 5, {"ver": user.auth_version, "sid": "session-1"})
+
+    async def test_wrong_current_password_is_recorded_and_limit_blocks(self):
+        from unittest.mock import AsyncMock, patch
+
+        user = self.make_user()
+        service = UserService(FakeDatabase(user))
+        reserve = AsyncMock(return_value=9)
+        release = AsyncMock()
+        with patch("backend.domain.users.services.users.reserve_attempt", reserve), patch("backend.domain.users.services.users.release_attempt", release):
+            with self.assertRaises(HTTPException) as raised:
+                await service.change_password(
+                    self.access_token(user), ChangePasswordRequest(current_password="WrongPassword!1", new_password="NewPassword!1")
+                )
+        self.assertEqual(raised.exception.detail["code"], "INVALID_CURRENT_PASSWORD")
+        reserve.assert_awaited_once_with(service.db, "password-confirm-user", "41", 5, 900)
+        release.assert_not_awaited()  # 틀린 비밀번호는 기록을 남김
+
+        from backend.core.rate_limit import rate_limited_error
+
+        blocked = AsyncMock(side_effect=rate_limited_error(600))
+        with patch("backend.domain.users.services.users.reserve_attempt", blocked):
+            with self.assertRaises(HTTPException) as raised:
+                await service.change_password(
+                    self.access_token(user), ChangePasswordRequest(current_password="CurrentPassword!1", new_password="NewPassword!1")
+                )
+        self.assertEqual(raised.exception.status_code, 429)
+        self.assertTrue(verify_password("CurrentPassword!1", user.password_hash))  # 제한 중에는 변경되지 않음
+
+    async def test_password_change_sends_security_notice_to_current_email(self):
+        sender = self.patch_notice()
+        user = self.make_user()
+        await UserService(FakeDatabase(user)).change_password(
+            self.access_token(user), ChangePasswordRequest(current_password="CurrentPassword!1", new_password="NewPassword!1")
+        )
+        self.assertEqual(sender.await_args.args[1], "secure@example.com")
+
+    async def test_email_change_notifies_previous_address_with_masked_new_email(self):
+        sender = self.patch_notice()
+        user = self.make_user()
+        token = create_token(
+            user.id, "user_email_change", 5, {"new_email": "newaddr@example.com", "current_email": "secure@example.com", "ver": 0}
+        )
+
+        class Database(FakeDatabase):
+            async def execute(self, query):
+                is_lock = getattr(query, "_for_update_arg", None) is not None
+                return FakeResult(self.admin if is_lock else None)  # 회원 잠금 조회는 회원, 이메일 중복 조회는 없음
+
+        await UserService(Database(user)).confirm_email_change(VerifyEmailRequest(token=token))
+        self.assertEqual(user.email, "newaddr@example.com")
+        to_email, title, message_text = sender.await_args.args[1:]
+        self.assertEqual(to_email, "secure@example.com")
+        self.assertIn("ne*****@example.com", message_text)
+
+    async def test_reset_link_sent_to_previous_email_is_rejected(self):
+        user = self.make_user(email="changed@example.com")
+        token = create_token(user.id, "user_password_reset", 5, {"ver": 0, "email": "old@example.com"})
+        with self.assertRaises(HTTPException) as raised:
+            await UserService(FakeDatabase(user)).reset_password(PasswordResetConfirmRequest(token=token, new_password="NewPassword!1"))
+        self.assertEqual(raised.exception.detail["code"], "INVALID_RESET_TOKEN")
+
+    async def test_unlock_link_works_once_for_the_current_lock(self):
+        locked_until = datetime.now(timezone.utc) + timedelta(hours=1)
+        user = self.make_user(login_fail_count=5, locked_until=locked_until)
+        service = UserService(FakeDatabase(user))
+        token = create_token(user.id, "user_unlock", 5, {"lock": int(locked_until.timestamp())})
+
+        await service.unlock_account(token)
+        self.assertIsNone(user.locked_until)
+        self.assertEqual(user.login_fail_count, 0)
+        with self.assertRaises(HTTPException) as raised:
+            await service.unlock_account(token)  # 같은 링크 재사용
+        self.assertEqual(raised.exception.detail["code"], "INVALID_UNLOCK_TOKEN")
+
+        user.locked_until = locked_until + timedelta(hours=2)  # 다시 잠겼을 때 이전 잠금의 링크는 무효
+        with self.assertRaises(HTTPException):
+            await service.unlock_account(token)
+
+
+# 결제 승인 누락 보정(A5)과 불확정 오류 처리: 결제키 선저장, 확정 거절만 실패, 불확정은 즉시 조회, 정리 작업은 주문별 반영
+class PaymentReconciliationTests(unittest.IsolatedAsyncioTestCase):
+    def make_order(self, **overrides):
+        from backend.domain.orders.models.orders import Order
+
+        values = dict(
+            id=1,
+            order_number="ARAM-20261001-AAAAAAAAAAAA",
+            user_id=7,
+            status="pending",
+            order_name="상품",
+            total_amount=12000,
+            from_cart=False,
+            payment_key=None,
+            created_at=datetime.now(timezone.utc) - timedelta(days=2),
+        )
+        values.update(overrides)
+        return Order(**values)
+
+    def done_payment(self, order, payment_key="pk_1", **overrides):
+        return {"status": "DONE", "orderId": order.order_number, "paymentKey": payment_key, "totalAmount": order.total_amount,
+                "method": "카드", "approvedAt": "2026-10-01T10:00:00+09:00", **overrides}
+
+    def service_for(self, order):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from backend.domain.orders.services.orders import OrderService
+
+        commits = []
+
+        class Db:
+            async def execute(self, _statement):
+                return FakeResult(order)
+
+            async def commit(self):
+                commits.append((order.status, order.payment_key))
+
+            async def rollback(self):
+                pass
+
+        service = OrderService.__new__(OrderService)
+        service.db = Db()
+        service.user_service = SimpleNamespace(_get_user_from_access_token=AsyncMock(return_value=SimpleNamespace(id=7)))
+        service._order_payload = AsyncMock(return_value={"order_id": order.order_number})
+        return service, commits
+
+    async def confirm(self, order, confirm_effect, lookup_effect=None, payment_key="pk_1"):
+        from unittest.mock import AsyncMock, patch
+
+        from backend.domain.orders.schemas.orders import OrderConfirmRequest
+
+        service, commits = self.service_for(order)
+        request = OrderConfirmRequest(payment_key=payment_key, order_id=order.order_number, amount=order.total_amount)
+        with patch("backend.domain.orders.services.orders.toss.confirm_payment", AsyncMock(**confirm_effect)), \
+                patch("backend.domain.orders.services.orders.toss.get_payment", AsyncMock(**(lookup_effect or {"return_value": None}))) as lookup:
+            try:
+                return await service.confirm_payment("token", request), commits, lookup
+            except HTTPException as error:
+                return error, commits, lookup
+
+    def gateway_error(self, http_status, code):
+        from backend.core.errors import api_error
+
+        return api_error(400, "PAYMENT_FAILED", "결제사 오류", gateway_code=code, gateway_status=http_status)
+
+    async def test_payment_key_is_saved_before_gateway_call(self):
+        from backend.core.errors import api_error
+
+        order = self.make_order()
+        result, commits, _ = await self.confirm(order, {"side_effect": api_error(502, "PAYMENT_GATEWAY_UNAVAILABLE", "연결 실패")})
+        self.assertEqual(commits[0], ("pending", "pk_1"))  # 결제사 호출 전에 결제키 저장
+        self.assertIsNotNone(order.payment_attempted_at)
+        self.assertEqual(result.detail["code"], "PAYMENT_CONFIRMATION_PENDING")
+        self.assertEqual((order.status, order.payment_key), ("pending", "pk_1"))
+
+        result, _, _ = await self.confirm(order, {"return_value": {}}, payment_key="pk_other")
+        self.assertEqual(result.detail["code"], "PAYMENT_KEY_MISMATCH")
+
+    async def test_idempotent_processing_or_lost_response_is_settled_by_lookup(self):
+        for http_status, code in (
+            (409, "IDEMPOTENT_REQUEST_PROCESSING"),
+            (400, "ALREADY_PROCESSING_REQUEST"),
+            (400, "ALREADY_PROCESSED_PAYMENT"),
+            (500, "FAILED_INTERNAL_SYSTEM_PROCESSING"),
+            (429, "TOO_MANY_REQUESTS"),
+        ):
+            order = self.make_order()
+            result, _, lookup = await self.confirm(order, {"side_effect": self.gateway_error(http_status, code)}, {"return_value": self.done_payment(order)})
+            self.assertEqual(order.status, "paid", code)  # 실제 승인됐으면 완료 처리
+            lookup.assert_awaited_once()
+
+            order = self.make_order()
+            result, _, _ = await self.confirm(order, {"side_effect": self.gateway_error(http_status, code)}, {"return_value": {"status": "IN_PROGRESS"}})
+            self.assertEqual(result.detail["code"], "PAYMENT_CONFIRMATION_PENDING", code)
+            self.assertEqual((order.status, order.payment_key), ("pending", "pk_1"))  # 실패로 확정하지 않음
+
+    async def test_broken_success_body_or_missing_code_is_uncertain_not_failed(self):
+        import httpx
+        from unittest.mock import AsyncMock, patch
+
+        from backend.core.config import settings
+        from backend.domain.orders.schemas.orders import OrderConfirmRequest
+        from backend.domain.orders.services import toss
+
+        original = settings.toss_secret_key
+        object.__setattr__(settings, "toss_secret_key", "test_sk_dummy")
+        self.addCleanup(object.__setattr__, settings, "toss_secret_key", original)
+        real = httpx.AsyncClient
+        bodies = (
+            (200, b"{not json", "application/json"),  # 깨진 JSON
+            (200, b"[1, 2]", "application/json"),  # 배열
+            (400, b"<html>bad gateway</html>", "text/html"),  # 코드 없는 4xx
+        )
+        for status_code, body, content_type in bodies:
+            order = self.make_order()
+            service, _ = self.service_for(order)
+            handler = lambda request, code=status_code, content=body, kind=content_type: httpx.Response(
+                code, content=content, headers={"content-type": kind}
+            )
+            request = OrderConfirmRequest(payment_key="pk_1", order_id=order.order_number, amount=order.total_amount)
+            with patch("backend.domain.orders.services.toss.httpx.AsyncClient", lambda handler=handler, **kw: real(transport=httpx.MockTransport(handler), **kw)), \
+                    patch("backend.domain.orders.services.orders.toss.get_payment", AsyncMock(return_value=None)):
+                with self.assertRaises(HTTPException) as raised:
+                    await service.confirm_payment("token", request)
+            self.assertEqual(raised.exception.detail["code"], "PAYMENT_CONFIRMATION_PENDING", body)
+            self.assertEqual((order.status, order.payment_key), ("pending", "pk_1"))
+
+        # 필드가 빠진 200 응답도 승인 확인 전까지는 실패가 아님
+        order = self.make_order()
+        result, _, _ = await self.confirm(order, {"return_value": {"status": "DONE"}})
+        self.assertEqual(result.detail["code"], "PAYMENT_CONFIRMATION_PENDING")
+
+        # 결제 조회 응답이 깨져도 예외(정리 작업이 다음 주기에 재시도)
+        handler = lambda request: httpx.Response(200, content=b"oops", headers={"content-type": "application/json"})
+        with patch("backend.domain.orders.services.toss.httpx.AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw)):
+            with self.assertRaises(RuntimeError):
+                await toss.get_payment("pk_1")
+
+    async def test_unexpected_error_during_confirm_is_uncertain(self):
+        order = self.make_order()
+        with self.assertLogs("backend.domain.orders.services.orders", "ERROR"):
+            result, _, lookup = await self.confirm(order, {"side_effect": ValueError("decode")}, {"return_value": self.done_payment(order)})
+        self.assertEqual(order.status, "paid")  # 조회로 승인 확인되면 완료
+        lookup.assert_awaited_once()
+
+    async def test_paid_gateway_result_with_database_failure_stays_pending(self):
+        from unittest.mock import AsyncMock, patch
+
+        from backend.domain.orders.schemas.orders import OrderConfirmRequest
+
+        for route in ("confirm", "lookup"):
+            order = self.make_order()
+            service, _ = self.service_for(order)
+            commit_count = 0
+
+            async def fail_final_commit():
+                nonlocal commit_count
+                commit_count += 1
+                if commit_count == 2:
+                    raise RuntimeError("database connection lost after payment approval")
+
+            service.db.commit = fail_final_commit
+            payment = self.done_payment(order)
+            confirm_effect = (
+                {"return_value": payment}
+                if route == "confirm"
+                else {"side_effect": self.gateway_error(500, "COMMON_ERROR")}
+            )
+            request = OrderConfirmRequest(payment_key="pk_1", order_id=order.order_number, amount=order.total_amount)
+            with patch("backend.domain.orders.services.orders.toss.confirm_payment", AsyncMock(**confirm_effect)), \
+                    patch("backend.domain.orders.services.orders.toss.get_payment", AsyncMock(return_value=payment)):
+                with self.assertLogs("backend.domain.orders.services.orders", "ERROR"), self.assertRaises(HTTPException) as raised:
+                    await service.confirm_payment("token", request)
+            self.assertEqual(raised.exception.detail["code"], "PAYMENT_CONFIRMATION_PENDING")
+
+    def test_confirmation_amount_uses_supported_card_payment_range(self):
+        from pydantic import ValidationError
+
+        from backend.domain.orders.schemas.orders import OrderConfirmRequest
+
+        for amount in (0, 99, 2_147_483_648):
+            with self.subTest(amount=amount), self.assertRaises(ValidationError):
+                OrderConfirmRequest(payment_key="pk_1", order_id="ARAM-20261001-AAAAAAAAAAAA", amount=amount)
+
+    async def test_definitive_rejection_marks_failed_but_keeps_key_for_recheck(self):
+        order = self.make_order()
+        result, _, lookup = await self.confirm(order, {"side_effect": self.gateway_error(400, "REJECT_CARD_COMPANY")})
+        self.assertEqual(result.detail["code"], "PAYMENT_FAILED")
+        self.assertEqual((order.status, order.payment_key), ("failed", "pk_1"))
+        lookup.assert_not_awaited()
+
+    async def test_success_response_must_match_order_key_and_amount(self):
+        order = self.make_order()
+        mismatched = self.done_payment(order, paymentKey="pk_someone_else")
+        with self.assertLogs("backend.domain.orders.services.orders", "ERROR"):
+            result, _, lookup = await self.confirm(order, {"return_value": mismatched}, {"return_value": None})
+        self.assertEqual(result.detail["code"], "PAYMENT_CONFIRMATION_PENDING")
+        self.assertEqual(order.status, "pending")
+        lookup.assert_awaited_once()
+
+        order = self.make_order()
+        await self.confirm(order, {"return_value": self.done_payment(order)})
+        self.assertEqual(order.status, "paid")
+        self.assertEqual(order.paid_at, datetime(2026, 10, 1, 1, 0, tzinfo=timezone.utc))
+
+    async def apply(self, order, payment):
+        service, commits = self.service_for(order)
+        await service.apply_payment_lookup(order.id, "pk_1", payment)
+        return commits
+
+    async def test_lookup_result_is_applied_per_order(self):
+        old_attempt = datetime.now(timezone.utc) - timedelta(days=2)
+        order = self.make_order(payment_key="pk_1", payment_attempted_at=old_attempt, status="failed", failure_message="이전 오류")
+        await self.apply(order, self.done_payment(order))
+        self.assertEqual(order.status, "paid")
+        self.assertIsNone(order.failure_message)
+
+        for payment in ({"status": "EXPIRED"}, {"status": "CANCELED"}, None):
+            order = self.make_order(payment_key="pk_1", payment_attempted_at=old_attempt, status="failed")
+            await self.apply(order, payment)
+            self.assertEqual((order.status, order.payment_key), ("failed", None))  # 미결제 확인 후에만 삭제 대상
+
+        recent_attempt = datetime.now(timezone.utc) - timedelta(minutes=20)
+        order = self.make_order(payment_key="pk_1", payment_attempted_at=recent_attempt)
+        with self.assertLogs("backend.domain.orders.services.orders", "WARNING"):
+            await self.apply(order, None)
+        self.assertEqual((order.status, order.payment_key), ("pending", "pk_1"))  # 첫 404는 결제키를 보존해 재확인
+
+        order = self.make_order(payment_key="pk_1")
+        await self.apply(order, {"status": "READY"})
+        self.assertEqual((order.status, order.payment_key), ("pending", "pk_1"))  # 아직 진행 중이면 다음 주기에 재확인
+
+        order = self.make_order(payment_key="pk_1")
+        with self.assertLogs("backend.domain.orders.services.orders", "ERROR"):
+            await self.apply(order, {"status": "PARTIAL_CANCELED"})
+        self.assertEqual((order.status, order.payment_key), ("pending", "pk_1"))
+
+        order = self.make_order(payment_key="pk_newer", status="pending")
+        await self.apply(order, {"status": "EXPIRED"})  # 조회 중 다른 결제키로 바뀐 주문은 건드리지 않음
+        self.assertEqual((order.status, order.payment_key), ("pending", "pk_newer"))
+
+    async def test_cleanup_deletes_only_orders_without_payment_key(self):
+        from sqlalchemy.dialects import postgresql
+
+        from backend.domain.orders.services.orders import OrderService
+
+        statements = []
+
+        class Db:
+            async def execute(self, statement):
+                statements.append(statement)
+                return type("R", (), {"rowcount": 0, "all": lambda self: []})()
+
+        service = OrderService.__new__(OrderService)
+        service.db = Db()
+        await service.purge_unpaid_orders(commit=False)
+        self.assertIn("payment_key IS NULL", str(statements[0].compile(dialect=postgresql.dialect())))
+        await service.reconcile_candidates()
+        sql = str(statements[1].compile(dialect=postgresql.dialect()))
+        self.assertIn("payment_key IS NOT NULL", sql)
+        self.assertIn("payment_attempted_at", sql)
+        self.assertIn("status IN", sql)  # pending과 확정 거절된 failed 모두 결제사에서 한 번 더 확인
+
+    async def test_toss_payment_lookup_maps_not_found_and_errors(self):
+        import httpx
+        from unittest.mock import patch
+
+        from backend.core.config import settings
+        from backend.domain.orders.services import toss
+
+        original = settings.toss_secret_key
+        object.__setattr__(settings, "toss_secret_key", "test_sk_dummy")
+        self.addCleanup(object.__setattr__, settings, "toss_secret_key", original)
+        real = httpx.AsyncClient
+        for status_code, expected in ((200, {"status": "DONE"}), (404, None)):
+            handler = lambda request, code=status_code: httpx.Response(code, json={"status": "DONE"})
+            with patch("backend.domain.orders.services.toss.httpx.AsyncClient", lambda handler=handler, **kw: real(transport=httpx.MockTransport(handler), **kw)):
+                self.assertEqual(await toss.get_payment("pk/1"), expected)
+        handler = lambda request: httpx.Response(500, json={})
+        with patch("backend.domain.orders.services.toss.httpx.AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw)):
+            with self.assertRaises(RuntimeError):
+                await toss.get_payment("pk_1")
+
+# 여러 창에서 동시에 재발급할 때 리프레시 토큰 행을 잠가 차례로 처리하는지 확인
+class RefreshRowLockTests(unittest.IsolatedAsyncioTestCase):
+    async def test_refresh_lookup_locks_row_but_signout_does_not(self):
+        statements = []
+
+        class Db:
+            async def execute(self, statement):
+                statements.append(statement)
+                return FakeResult(None)
+
+        for service in (UserService(Db()), AdminAccountService(Db())):
+            statements.clear()
+            with self.assertRaises(HTTPException):
+                await service.refresh_session("unknown-token")
+            self.assertIsNotNone(statements[0]._for_update_arg)
+            statements.clear()
+            await service.revoke_refresh_session("unknown-token")
+            self.assertIsNone(statements[0]._for_update_arg)
+
+
+# 관리자 TOTP 2단계 인증: 비밀값 암호화·QR 등록 주소·코드 재사용 방지·복구 코드·로그인 2단계 흐름
+class AdminMfaTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        import pyotp
+
+        from backend.domain.admins.services.mfa import encrypt_secret, generate_secret, hash_recovery_code
+
+        self.pyotp = pyotp
+        self.secret = generate_secret()
+        self.admin = AdminAccount(
+            id=1,
+            username="admin",
+            password_hash=hash_password("Password!1"),
+            created_at=datetime.now(timezone.utc),
+            is_active=True,
+            auth_version=3,
+            mfa_secret_encrypted=encrypt_secret(self.secret),
+            mfa_enabled_at=datetime.now(timezone.utc),
+            mfa_last_used_step=None,
+            mfa_recovery_code_hashes=[hash_recovery_code("ABCD-EFGH")],
+        )
+        self.service = AdminAccountService(FakeDatabase(self.admin))
+        self.service.limiter = LoginRateLimiter(clock=lambda: 1_000.0)
+
+    def current_code(self):
+        return self.pyotp.TOTP(self.secret).now()
+
+    async def pending_token(self):
+        result = await self.service.signin(SignInRequest(username="admin", password="Password!1"), "127.0.0.1")
+        self.assertEqual(result["mfa_required"], True)
+        self.assertNotIn("access_token", result)  # 비밀번호만으로는 로그인 토큰을 주지 않음
+        return result["mfa_token"]
+
+    def test_secret_is_encrypted_and_uri_works_with_authenticator_apps(self):
+        from urllib.parse import parse_qs, urlparse
+
+        from backend.domain.admins.services.mfa import decrypt_secret, provisioning_uri
+
+        self.assertNotIn(self.secret, self.admin.mfa_secret_encrypted)
+        self.assertEqual(decrypt_secret(self.admin.mfa_secret_encrypted), self.secret)
+        uri = urlparse(provisioning_uri(self.secret, "admin"))
+        self.assertEqual((uri.scheme, uri.netloc), ("otpauth", "totp"))
+        self.assertEqual(parse_qs(uri.query)["secret"], [self.secret])
+        self.assertEqual(parse_qs(uri.query)["issuer"], ["Aram Market"])
+
+    def test_code_matches_within_one_step_window_only(self):
+        from backend.domain.admins.services.mfa import matching_step
+
+        now = 1_800_000_000.0
+        totp = self.pyotp.TOTP(self.secret)
+        step = int(now // 30)
+        self.assertEqual(matching_step(self.secret, totp.at(now), now), step)
+        self.assertEqual(matching_step(self.secret, totp.at(now - 30), now), step - 1)
+        self.assertIsNone(matching_step(self.secret, totp.at(now - 90), now))
+        self.assertIsNone(matching_step(self.secret, "12ab56", now))
+
+    def test_recovery_codes_are_formatted_and_hash_ignores_case_and_hyphen(self):
+        from backend.domain.admins.services.mfa import generate_recovery_codes, hash_recovery_code
+
+        codes = generate_recovery_codes()
+        self.assertEqual(len(set(codes)), 10)
+        self.assertTrue(all(len(code) == 9 and code[4] == "-" for code in codes))
+        self.assertEqual(hash_recovery_code("abcd efgh"), hash_recovery_code("ABCD-EFGH"))
+
+    async def test_valid_code_completes_login_and_same_code_cannot_be_reused(self):
+        from backend.domain.admins.schemas.admins import MfaVerifyRequest
+
+        token = await self.pending_token()
+        code = self.current_code()
+        result = await self.service.verify_mfa(token, MfaVerifyRequest(code=code), "127.0.0.1")
+        self.assertEqual(decode_token(result["access_token"], "admin_access")["sub"], 1)
+        self.assertIsNotNone(self.admin.mfa_last_used_step)
+        with self.assertRaises(HTTPException) as raised:
+            await self.service.verify_mfa(token, MfaVerifyRequest(code=code), "127.0.0.1")
+        self.assertEqual(raised.exception.detail["code"], "INVALID_MFA_CODE")
+
+    async def test_recovery_code_works_once(self):
+        from backend.domain.admins.schemas.admins import MfaVerifyRequest
+
+        token = await self.pending_token()
+        await self.service.verify_mfa(token, MfaVerifyRequest(code="abcd-efgh"), "127.0.0.1")
+        self.assertEqual(self.admin.mfa_recovery_code_hashes, [])
+        with self.assertRaises(HTTPException):
+            await self.service.verify_mfa(token, MfaVerifyRequest(code="ABCD-EFGH"), "127.0.0.1")
+
+    async def test_wrong_codes_are_rate_limited_and_password_success_does_not_reset(self):
+        from backend.domain.admins.schemas.admins import MfaVerifyRequest
+
+        token = await self.pending_token()
+        codes = []
+        for _ in range(5):
+            with self.assertRaises(HTTPException) as raised:
+                await self.service.verify_mfa(token, MfaVerifyRequest(code="000000"), "127.0.0.1")
+            codes.append(raised.exception.detail["code"])
+        self.assertEqual(codes[:4], ["INVALID_MFA_CODE"] * 4)
+        self.assertEqual(codes[4], "LOGIN_RATE_LIMITED")
+        with self.assertRaises(HTTPException) as raised:
+            await self.service.signin(SignInRequest(username="admin", password="Password!1"), "127.0.0.1")
+        self.assertEqual(raised.exception.detail["code"], "LOGIN_RATE_LIMITED")
+
+    async def test_expired_or_stale_pending_token_requires_restart(self):
+        from backend.domain.admins.schemas.admins import MfaVerifyRequest
+
+        for token in (None, "garbage", create_token(1, "admin_mfa_pending", 5, {"ver": 2}), create_token(1, "admin_access", 5, {"ver": 3})):
+            with self.assertRaises(HTTPException) as raised:
+                await self.service.verify_mfa(token, MfaVerifyRequest(code=self.current_code()), "127.0.0.1")
+            self.assertEqual(raised.exception.detail["code"], "MFA_SESSION_EXPIRED")
+
+    async def test_mfa_required_or_partial_setup_blocks_password_only_login(self):
+        from backend.core.config import settings
+
+        self.admin.mfa_enabled_at = None
+        self.admin.mfa_secret_encrypted = None
+        original = settings.admin_mfa_required
+        object.__setattr__(settings, "admin_mfa_required", True)
+        self.addCleanup(object.__setattr__, settings, "admin_mfa_required", original)
+        with self.assertLogs("backend.domain.admins.services.admins", "ERROR"), self.assertRaises(HTTPException) as raised:
+            await self.service.signin(SignInRequest(username="admin", password="Password!1"), "127.0.0.1")
+        self.assertEqual((raised.exception.status_code, raised.exception.detail["code"]), (503, "ADMIN_MFA_NOT_CONFIGURED"))
+
+        object.__setattr__(settings, "admin_mfa_required", False)
+        self.admin.mfa_enabled_at = datetime.now(timezone.utc)  # 등록 시각만 있고 비밀값이 없는 부분 상태
+        with self.assertLogs("backend.domain.admins.services.admins", "ERROR"), self.assertRaises(HTTPException) as raised:
+            await self.service.signin(SignInRequest(username="admin", password="Password!1"), "127.0.0.1")
+        self.assertEqual(raised.exception.detail["code"], "ADMIN_MFA_NOT_CONFIGURED")
+
+    async def test_admin_without_mfa_still_logs_in_with_password(self):
+        from backend.core.config import settings
+
+        original = settings.admin_mfa_required
+        object.__setattr__(settings, "admin_mfa_required", False)  # 로컬 개발에서만 명시적으로 허용
+        self.addCleanup(object.__setattr__, settings, "admin_mfa_required", original)
+        self.admin.mfa_enabled_at = None
+        self.admin.mfa_secret_encrypted = None
+        with self.assertLogs("backend.domain.admins.services.admins", "WARNING"):
+            result = await self.service.signin(SignInRequest(username="admin", password="Password!1"), "127.0.0.1")
+        self.assertIn("access_token", result)
+
+
+# 메일 링크 토큰으로 계정을 바꾸는 요청은 회원 행을 잠그고, 오래된 이메일 변경 링크는 다른 변경이 끝나면 무효
+class TokenFlowLockTests(unittest.IsolatedAsyncioTestCase):
+    def make_user(self):
+        return User(
+            id=51, username="lock_user", password_hash=hash_password("CurrentPassword!1"), nickname="잠금", email="first@example.com",
+            is_active=True, status="active", auth_version=0, login_fail_count=0, service_policy=True, privacy_policy=True,
+            marketing_consent=False,
+        )
+
+    def database(self, user, statements):
+        class Db(FakeDatabase):
+            async def execute(self, query):
+                statements.append(query)
+                is_lock = getattr(query, "_for_update_arg", None) is not None
+                return FakeResult(self.admin if is_lock else None)
+
+        return Db(user)
+
+    async def test_token_flows_lock_user_row(self):
+        from unittest.mock import AsyncMock, patch
+
+        from backend.domain.users.schemas.users import CancelWithdrawalRequest
+
+        user = self.make_user()
+        statements = []
+        service = UserService(self.database(user, statements))
+        with patch("backend.domain.users.services.users.send_security_notice_email", AsyncMock(return_value=True)):
+            reset = create_token(51, "user_password_reset", 5, {"ver": 0, "email": "first@example.com"})
+            await service.reset_password(PasswordResetConfirmRequest(token=reset, new_password="NewPassword!1"))
+            self.assertIsNotNone(statements[0]._for_update_arg)
+
+            with self.assertRaises(HTTPException) as raised:  # 같은 링크 두 번째 사용(auth_version 증가)은 거부
+                await service.reset_password(PasswordResetConfirmRequest(token=reset, new_password="OtherPassword!1"))
+            self.assertEqual(raised.exception.detail["code"], "INVALID_RESET_TOKEN")
+
+        for call in (
+            lambda: service.unlock_account(create_token(51, "user_unlock", 5, {"lock": 0})),
+            lambda: service.cancel_withdrawal(CancelWithdrawalRequest(recovery_token=create_token(51, "user_withdrawal_recovery", 5, {"ver": 1}))),
+        ):
+            statements.clear()
+            with self.assertRaises(HTTPException):
+                await call()
+            self.assertIsNotNone(statements[0]._for_update_arg)
+
+    async def test_old_email_change_link_is_invalid_after_another_change(self):
+        from unittest.mock import AsyncMock, patch
+
+        user = self.make_user()
+        service = UserService(self.database(user, []))
+        first = create_token(51, "user_email_change", 5, {"new_email": "second@example.com", "current_email": "first@example.com", "ver": 0})
+        stale = create_token(51, "user_email_change", 5, {"new_email": "attacker@example.com", "current_email": "first@example.com", "ver": 0})
+        with patch("backend.domain.users.services.users.send_security_notice_email", AsyncMock(return_value=True)):
+            await service.confirm_email_change(VerifyEmailRequest(token=first))
+            self.assertEqual(user.email, "second@example.com")
+            with self.assertRaises(HTTPException) as raised:
+                await service.confirm_email_change(VerifyEmailRequest(token=stale))
+        self.assertEqual(raised.exception.detail["code"], "INVALID_EMAIL_CHANGE_TOKEN")
+        self.assertEqual(user.email, "second@example.com")
+
+
+# 로그인 상태의 비밀번호 변경·탈퇴는 회원 행을 잠근 뒤 최신 값으로 다시 확인(동시 요청의 lost update 방지)
+class PasswordChangeLockTests(unittest.IsolatedAsyncioTestCase):
+    def make_user(self, **overrides):
+        values = dict(
+            id=61, username="change_user", password_hash=hash_password("CurrentPassword!1"), nickname="변경", email="change@example.com",
+            is_active=True, status="active", auth_version=0, login_fail_count=0, service_policy=True, privacy_policy=True,
+            marketing_consent=False,
+        )
+        values.update(overrides)
+        return User(**values)
+
+    def service(self, token_user, locked_user):
+        from unittest.mock import AsyncMock, patch
+
+        events = []
+
+        class Db(FakeDatabase):
+            async def execute(self, query, params=None):
+                if getattr(query, "_for_update_arg", None) is not None:
+                    events.append("lock")
+                    return FakeResult(locked_user)
+                return FakeResult(token_user)
+
+            async def commit(self):
+                events.append("commit")
+
+            async def rollback(self):
+                events.append("rollback")
+
+        for name, mock in (("reserve_attempt", AsyncMock(return_value=3)), ("release_attempt", AsyncMock()), ("discard_attempt", AsyncMock()),
+                           ("send_security_notice_email", AsyncMock(return_value=True))):
+            patcher = patch(f"backend.domain.users.services.users.{name}", mock)
+            setattr(self, name, patcher.start())
+            self.addCleanup(patcher.stop)
+        return UserService(Db(token_user)), events
+
+    def token(self, user):
+        return create_token(user.id, "user_access", 5, {"ver": user.auth_version, "sid": "session-1"})
+
+    async def test_change_uses_locked_latest_row_and_commits_once(self):
+        user = self.make_user()
+        locked = self.make_user()  # 잠금 시점에 다시 읽은 최신 행
+        service, events = self.service(user, locked)
+        await service.change_password(self.token(user), ChangePasswordRequest(current_password="CurrentPassword!1", new_password="NewPassword!1"))
+        self.assertEqual(events[0], "lock")
+        self.assertTrue(verify_password("NewPassword!1", locked.password_hash))  # 잠근 최신 행에 반영
+        self.assertEqual(locked.auth_version, 1)
+        self.discard_attempt.assert_awaited_once()  # 성공 시도 기록은 변경과 같은 커밋으로 삭제
+        self.release_attempt.assert_not_awaited()
+
+    async def test_second_concurrent_change_is_rejected_after_first_commits(self):
+        user = self.make_user()
+        already_changed = self.make_user(auth_version=1, password_hash=hash_password("FirstWinner!1"))
+        service, events = self.service(user, already_changed)
+        with self.assertRaises(HTTPException) as raised:
+            await service.change_password(self.token(user), ChangePasswordRequest(current_password="CurrentPassword!1", new_password="Overwrite!1"))
+        self.assertEqual(raised.exception.detail["code"], "INVALID_ACCESS_TOKEN")
+        self.assertTrue(verify_password("FirstWinner!1", already_changed.password_hash))  # 앞선 변경을 덮어쓰지 않음
+        self.assertIn("rollback", events)
+        self.release_attempt.assert_awaited_once()  # 비밀번호 실패가 아니므로 시도 기록 삭제
+
+    async def test_deletion_also_locks_and_wrong_password_keeps_attempt(self):
+        from backend.domain.users.schemas.users import DeleteAccountRequest
+
+        user = self.make_user()
+        locked = self.make_user()
+        service, events = self.service(user, locked)
+        with self.assertRaises(HTTPException) as raised:
+            await service.request_account_deletion(self.token(user), DeleteAccountRequest(password="WrongPassword!1", confirmation="회원 탈퇴"))
+        self.assertEqual(raised.exception.detail["code"], "INVALID_PASSWORD")
+        self.assertEqual(events, ["lock"])
+        self.discard_attempt.assert_not_awaited()  # 틀린 비밀번호는 실패로 남김
+        await service.request_account_deletion(self.token(user), DeleteAccountRequest(password="CurrentPassword!1", confirmation="회원 탈퇴"))
+        self.assertEqual(locked.status, "pending_deletion")

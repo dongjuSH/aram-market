@@ -29,3 +29,8 @@ class SignInRequest(BaseModel):
     @classmethod
     def normalize_username(cls, value: str) -> str:
         return value.strip().lower()
+
+
+# 2단계 인증 코드(인증 앱 6자리 또는 XXXX-XXXX 복구 코드)
+class MfaVerifyRequest(BaseModel):
+    code: str = Field(min_length=6, max_length=20)

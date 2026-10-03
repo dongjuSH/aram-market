@@ -3,14 +3,19 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
     "dev": "vite",
     "dev:frontend": "vite",
     "build": "vite build",
     "lint": "oxlint",
+    "test": "node --test src/sentry-scrub.test.js src/features/checkout/payment-result-state.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@sentry/react": "^11.2.0",
     "@tiptap/extension-image": "^3.31.3",
     "@tiptap/pm": "^3.31.3",
     "@tiptap/react": "^3.31.3",

@@ -1,9 +1,13 @@
-# FastAPI 인증 백엔드 실행용 Python 패키지
-fastapi>=0.115,<1
-uvicorn[standard]>=0.32,<1
-sqlalchemy[asyncio]>=2,<3
-asyncpg>=0.30,<1
-pydantic>=2.10,<3
-python-dotenv>=1,<2
-pyjwt>=2.10,<3
-httpx>=0.28,<1
+# FastAPI 백엔드 실행용 Python 패키지(로컬에서 테스트한 버전으로 고정, Python 3.14)
+fastapi==0.141.1
+uvicorn[standard]==0.54.0
+sqlalchemy[asyncio]==2.1.1
+asyncpg==0.31.0
+pydantic==2.13.5
+python-dotenv==1.2.3
+pyjwt==2.15.1
+httpx==0.28.1
+cryptography==50.0.2  # 관리자 2단계 인증 비밀값 암호화(Fernet)
+pyotp==2.10.0  # 관리자 TOTP 코드 검증
+qrcode==8.2  # setup_admin_mfa.py 터미널 QR 출력
+sentry-sdk[fastapi]==2.71.0  # 운영 오류 수집(SENTRY_DSN이 있을 때만 동작)

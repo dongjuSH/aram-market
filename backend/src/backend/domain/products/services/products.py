@@ -50,7 +50,9 @@ class DetailHtmlSanitizer(HTMLParser):
         if tag == "img":
             source = next((value for name, value in attrs if name == "src"), "") or ""
             alternative = next((value for name, value in attrs if name == "alt"), "") or ""
-            if not source.startswith(("https://", "http://")):
+            # 자사 Supabase Storage 상품 이미지 버킷 주소만 허용(외부 추적 이미지·깨진 링크 방지, ../로 다른 버킷 접근 차단)
+            storage_prefix = product_storage.public_url("")
+            if not storage_prefix or not source.startswith(storage_prefix) or ".." in source:
                 return
             safe_attrs = f' src="{escape(source, quote=True)}" alt="{escape(alternative, quote=True)}"'
         self.parts.append(f"<{tag}{safe_attrs}>")

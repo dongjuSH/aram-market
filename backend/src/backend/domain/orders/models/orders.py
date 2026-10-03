@@ -35,6 +35,8 @@ class Order(Base):
     from_cart: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     payment_key: Mapped[str | None] = mapped_column(String(200), unique=True, nullable=True)
+    # 주문 생성 시각과 분리해 실제 승인 요청 이후에만 결제사 재조회를 시작하기 위한 기준 시각
+    payment_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True, nullable=True)
     payment_method: Mapped[str | None] = mapped_column(String(40), nullable=True)
     failure_message: Mapped[str | None] = mapped_column(String(300), nullable=True)
     # 배송 정보(결제 전 입력, 기존 주문은 없을 수 있음)

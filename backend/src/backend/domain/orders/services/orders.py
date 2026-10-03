@@ -8,7 +8,7 @@ import secrets
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, status
+from fastapi import Depends, HTTPException, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +23,7 @@ from backend.domain.products.models.products import Product, ProductCategory
 from backend.domain.products.services.storage import product_storage
 from backend.domain.users.models.users import User
 from backend.core.errors import api_error
+from backend.core.validators import MAX_ORDER_PAYMENT_AMOUNT, MIN_CARD_PAYMENT_AMOUNT
 from backend.domain.users.services.users import UserService
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,21 @@ logger = logging.getLogger(__name__)
 STATUS_PENDING = "pending"
 STATUS_PAID = "paid"
 STATUS_FAILED = "failed"
+TOSS_UNPAID_STATUSES = {"ABORTED", "EXPIRED", "CANCELED"}  # 결제사 조회 결과 돈이 남아 있지 않은 상태(미결제·만료·전액 취소)
+TOSS_NOT_FINAL_STATUSES = {"READY", "IN_PROGRESS"}  # 아직 승인 전 단계(시간이 지나면 만료로 바뀌므로 다음 주기에 다시 확인)
+# 4xx여도 결제가 이미 승인됐거나 처리 중일 수 있어 실패로 확정하면 안 되는 토스 오류 코드
+TOSS_UNCERTAIN_CODES = {
+    "IDEMPOTENT_REQUEST_PROCESSING",  # 같은 멱등 키의 첫 요청이 아직 처리 중
+    "ALREADY_PROCESSING_REQUEST",  # 승인 API가 돌려주는 "이미 처리 중" 오류
+    "ALREADY_PROCESSED_PAYMENT",  # 이미 승인된 결제(첫 응답을 받지 못한 경우)
+    "ALREADY_COMPLETED_PAYMENT",  # 완료된 결제를 다시 처리한 경우
+    "PROVIDER_ERROR",
+    "FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING",
+    "FAILED_INTERNAL_SYSTEM_PROCESSING",
+    "UNKNOWN_PAYMENT_ERROR",
+}
+RECONCILE_AFTER = timedelta(minutes=10)  # 승인 요청 후 이 시간이 지나도 결과가 저장되지 않은 주문을 결제사에 조회
+NOT_FOUND_FINAL_AFTER = timedelta(days=1)  # 조회 404는 승인 직후 일시 상태일 수 있어 승인 시도 하루 뒤부터만 미결제로 확정
 DELIVERY_FLOW = ("paid", "preparing", "shipping", "delivered")  # 결제완료 → 상품준비중 → 배송중 → 배송완료
 ORDER_PERIOD_MONTHS = (3, 6, 12)  # 고객 주문 목록 조회 기간(개월)
 ORDER_HISTORY_MONTHS = 60  # 날짜 직접 지정으로 조회할 수 있는 최대 과거(5년, 전자상거래법 거래기록 보관기간)
@@ -70,6 +86,40 @@ def order_period_range(
     lower = datetime.combine(start_date, datetime.min.time(), tzinfo=KOREA_TIMEZONE)
     upper = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=KOREA_TIMEZONE)  # 종료일 하루 전체 포함
     return lower, upper
+
+
+# 토스 승인 오류가 "결제되지 않았음"이 확실한 거절인지(409·429·5xx·처리 중 코드는 결과를 알 수 없음)
+def is_definitive_rejection(detail: dict) -> bool:
+    gateway_status = detail.get("gateway_status")
+    gateway_code = detail.get("gateway_code")
+    return (
+        isinstance(gateway_status, int)
+        and 400 <= gateway_status < 500
+        and gateway_status not in (409, 429)
+        and bool(gateway_code)  # 오류 코드조차 읽지 못한 응답(깨진 본문 등)은 결과를 알 수 없음
+        and gateway_code not in TOSS_UNCERTAIN_CODES
+    )
+
+
+# 결제사 결과가 이 주문의 승인 완료와 정확히 일치하는지(상태·주문번호·결제키·금액 모두 확인)
+def payment_matches(order: Order, payment: dict | None, payment_key: str) -> bool:
+    if not payment or payment.get("status") != "DONE":
+        return False
+    try:
+        amount = int(payment.get("totalAmount", -1))
+    except (TypeError, ValueError):
+        return False
+    return payment.get("orderId") == order.order_number and payment.get("paymentKey") == payment_key and amount == order.total_amount
+
+
+# 현재 제공하는 카드 결제 범위를 벗어난 주문은 결제창을 열기 전에 거부
+def ensure_supported_order_amount(total: int) -> None:
+    if not MIN_CARD_PAYMENT_AMOUNT <= total <= MAX_ORDER_PAYMENT_AMOUNT:
+        raise api_error(
+            status.HTTP_409_CONFLICT,
+            "ORDER_AMOUNT_NOT_SUPPORTED",
+            f"주문 금액은 {MIN_CARD_PAYMENT_AMOUNT:,}원 이상 {MAX_ORDER_PAYMENT_AMOUNT:,}원 이하만 결제할 수 있습니다.",
+        )
 
 
 # 고객 주문·결제 서비스(인증은 고객 접근 토큰 검증을 그대로 사용)
@@ -120,6 +170,7 @@ class OrderService:
 
         ordered = [(products[product_id], quantity) for product_id, quantity in quantities.items()]
         total = sum(product.price * quantity for product, quantity in ordered)
+        ensure_supported_order_amount(total)
         first_name = ordered[0][0].name
         order_name = first_name if len(ordered) == 1 else f"{first_name} 외 {len(ordered) - 1}건"
         order = Order(
@@ -172,10 +223,18 @@ class OrderService:
 
         if order.status == STATUS_PAID:
             if order.payment_key == request.payment_key:
-                return await self._order_payload(order)
+                try:
+                    payload = await self._order_payload(order)
+                    await self.db.commit()  # 조회 중 유지한 주문 행 잠금 해제
+                    return payload
+                except Exception as error:
+                    await self._rollback_payment_settlement(order.order_number)
+                    raise self._payment_confirmation_pending_error() from error
             raise api_error(status.HTTP_409_CONFLICT, "ORDER_ALREADY_PAID", "이미 결제가 완료된 주문입니다.")
         if order.status != STATUS_PENDING:
             raise api_error(status.HTTP_409_CONFLICT, "ORDER_NOT_PAYABLE", "결제할 수 없는 주문입니다. 다시 주문해 주세요.")
+        if order.payment_key and order.payment_key != request.payment_key:
+            raise api_error(status.HTTP_409_CONFLICT, "PAYMENT_KEY_MISMATCH", "이미 다른 결제로 승인 요청된 주문입니다.")
 
         if order.total_amount != request.amount:
             order.status = STATUS_FAILED
@@ -183,31 +242,111 @@ class OrderService:
             await self.db.commit()
             raise api_error(status.HTTP_400_BAD_REQUEST, "AMOUNT_MISMATCH", "결제 금액이 주문 금액과 일치하지 않아 결제를 취소했습니다.")
 
+        # 승인 응답을 받기 전에 끊겨도 정리 작업이 결제사에 조회할 수 있도록 결제키를 먼저 저장하고,
+        # 결제사 응답(최대 15초)을 기다리는 동안 주문 행 잠금을 쥐고 있지 않도록 여기서 커밋(재시도여도 커밋)
+        # 동시에 같은 승인 요청이 와도 결제사는 주문번호 멱등 키로 한 번만 승인한다
+        if order.payment_key is None:
+            order.payment_key = request.payment_key
+            order.payment_attempted_at = datetime.now(timezone.utc)
+        elif order.payment_attempted_at is None:
+            # 030 적용 전 저장된 결제키나 배포 전후 경계 요청도 주문 생성 시각으로 즉시 정리하지 않도록 보정
+            order.payment_attempted_at = datetime.now(timezone.utc)
+        await self.db.commit()
+
         try:
             result = await toss.confirm_payment(request.payment_key, order.order_number, order.total_amount)
-        except Exception as error:
-            detail = getattr(error, "detail", None)
-            if isinstance(detail, dict) and detail.get("code") == "PAYMENT_FAILED":
+        except HTTPException as error:
+            detail = error.detail if isinstance(error.detail, dict) else {}
+            if detail.get("code") == "PAYMENT_NOT_CONFIGURED":
+                raise
+            if detail.get("code") == "PAYMENT_FAILED" and is_definitive_rejection(detail):
+                # 카드 거절 등 확정 실패만 failed(결제키는 남겨 정리 작업이 결제사에서 한 번 더 확인한 뒤 삭제)
                 order.status = STATUS_FAILED
                 order.failure_message = str(detail.get("message"))[:300]
                 await self.db.commit()
-            raise
+                raise
+            # 처리 중·이미 처리됨·5xx·연결 실패 등 결과를 알 수 없으면 실패로 확정하지 않고 바로 조회해 확인
+            return await self._settle_uncertain_payment(order, request.payment_key)
+        except Exception:
+            # 예상하지 못한 오류도 승인 여부를 알 수 없으므로 실패 화면 대신 결제사 조회로 확인
+            logger.exception("unexpected error during payment confirm order=%s", order.order_number)
+            return await self._settle_uncertain_payment(order, request.payment_key)
 
-        if result.get("status") != "DONE" or int(result.get("totalAmount", -1)) != order.total_amount:
-            order.status = STATUS_FAILED
-            order.failure_message = "결제 승인 결과가 주문과 일치하지 않습니다."
+        if not payment_matches(order, result, request.payment_key):
+            logger.error("payment confirm response does not match order order=%s status=%s", order.order_number, result.get("status"))
+            return await self._settle_uncertain_payment(order, request.payment_key)
+
+        return await self._finalize_confirmed_payment(order.id, request.payment_key, result)
+
+    # 승인 결과를 알 수 없을 때 결제사에 바로 조회: 승인됐으면 완료 처리, 아니면 pending으로 두고 정리 작업이 다시 확인
+    async def _settle_uncertain_payment(self, order: Order, payment_key: str) -> dict:
+        try:
+            payment = await toss.get_payment(payment_key)
+        except Exception:
+            logger.warning("payment lookup after uncertain confirm failed order=%s", order.order_number, exc_info=True)
+            payment = None
+        if payment_matches(order, payment, payment_key):
+            return await self._finalize_confirmed_payment(order.id, payment_key, payment)
+        raise self._payment_confirmation_pending_error()
+
+    # 결제사가 승인 완료를 확인한 뒤 주문을 다시 잠가 최신 상태에 반영하고, 커밋까지 끝난 경우에만 성공 응답
+    async def _finalize_confirmed_payment(self, order_id: int, payment_key: str, payment: dict) -> dict:
+        order_number = str(payment.get("orderId") or order_id)
+        try:
+            order = (
+                await self.db.execute(
+                    select(Order).where(Order.id == order_id).with_for_update().execution_options(populate_existing=True)
+                )
+            ).scalar_one_or_none()
+            if order is None or not payment_matches(order, payment, payment_key):
+                raise RuntimeError("confirmed payment no longer matches the order")
+            order_number = order.order_number
+            if order.status not in (STATUS_PENDING, STATUS_FAILED, STATUS_PAID):
+                raise RuntimeError("confirmed payment has an unsupported local order status")
+            if order.payment_key not in (None, payment_key):
+                raise RuntimeError("confirmed payment key conflicts with the current order")
+
+            # 외부 호출 중 정리 작업이 결제키를 비웠더라도 승인 결과와 주문 정보가 모두 일치하면 복원
+            order.payment_key = payment_key
+            if order.payment_attempted_at is None:
+                order.payment_attempted_at = datetime.now(timezone.utc)
+            if order.status != STATUS_PAID:
+                await self._mark_paid(order, payment)
+            payload = await self._order_payload(order)
             await self.db.commit()
-            raise api_error(status.HTTP_400_BAD_REQUEST, "PAYMENT_FAILED", "결제 승인 결과를 확인할 수 없습니다. 결제사에 문의해 주세요.")
+            return payload
+        except Exception as error:
+            await self._rollback_payment_settlement(order_number)
+            raise self._payment_confirmation_pending_error() from error
 
+    # 승인 완료의 로컬 반영 실패는 결제 실패로 표시하지 않고 Sentry 기록 후 정리 작업·재확인 대상으로 남김
+    async def _rollback_payment_settlement(self, order_number: str) -> None:
+        try:
+            await self.db.rollback()
+        except Exception:
+            logger.error("payment settlement rollback failed order=%s", order_number, exc_info=True)
+        logger.error("confirmed payment could not be persisted order=%s", order_number, exc_info=True)
+
+    @staticmethod
+    def _payment_confirmation_pending_error() -> HTTPException:
+        return api_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "PAYMENT_CONFIRMATION_PENDING",
+            "결제 결과를 확인하고 있습니다. 잠시 후 이 화면에서 다시 확인해 주세요. 결과가 확정될 때까지 다시 주문하지 마세요.",
+        )
+
+    # 결제 완료 처리: 상태·결제 수단·승인 시각 기록, 장바구니 주문이면 해당 상품을 장바구니에서 제거
+    async def _mark_paid(self, order: Order, payment: dict) -> None:
         order.status = STATUS_PAID
-        order.payment_key = request.payment_key
-        order.payment_method = str(result.get("method") or "")[:40] or None
-        order.paid_at = datetime.now(timezone.utc)
-        if order.from_cart:
+        order.failure_message = None
+        order.payment_method = str(payment.get("method") or "")[:40] or None
+        try:
+            order.paid_at = datetime.fromisoformat(str(payment["approvedAt"]))
+        except (KeyError, ValueError):
+            order.paid_at = datetime.now(timezone.utc)
+        if order.from_cart and order.user_id is not None:
             product_ids = (await self.db.execute(select(OrderItem.product_id).where(OrderItem.order_id == order.id))).scalars().all()
-            await self.db.execute(delete(CartItem).where(CartItem.user_id == user.id, CartItem.product_id.in_(product_ids)))
-        await self.db.commit()
-        return await self._order_payload(order)
+            await self.db.execute(delete(CartItem).where(CartItem.user_id == order.user_id, CartItem.product_id.in_(product_ids)))
 
     # 주문 화면용 직렬화(주문 상품은 한 번의 쿼리로 모아 조회해 주문 수만큼 쿼리가 늘어나지 않게 함)
     async def _order_payloads(self, orders: list[Order]) -> list[dict]:
@@ -298,7 +437,7 @@ class OrderService:
             )
         ).all()
         payloads = await self._order_payloads([order for order, _ in rows])
-        orders = [{**payload, "buyer": nickname or "탈퇴한 회원"} for payload, (_, nickname) in zip(payloads, rows)]
+        orders = [{**payload, "buyer": nickname or "탈퇴한 회원"} for payload, (_, nickname) in zip(payloads, rows, strict=True)]
         return {"orders": orders, "total": total, "page": page}
 
     # 배송 상태를 한 단계씩만 앞으로 변경(건너뛰기·되돌리기 불가)
@@ -324,10 +463,57 @@ class OrderService:
         await self.db.commit()
         return await self._order_payload(order)
 
-    # 결제하지 않고 하루가 지난 주문(pending·failed)을 정리
+    # 결제사 확인이 필요한 주문(승인 요청 후 10분이 지났는데 결제키가 남은 pending·failed)의 번호와 결제키(짧은 조회만, 잠금 없음)
+    async def reconcile_candidates(self, now: datetime | None = None) -> list[tuple[int, str]]:
+        cutoff = (now or datetime.now(timezone.utc)) - RECONCILE_AFTER
+        rows = (
+            await self.db.execute(
+                select(Order.id, Order.payment_key).where(
+                    Order.status.in_((STATUS_PENDING, STATUS_FAILED)),
+                    Order.payment_key.is_not(None),
+                    Order.payment_attempted_at.is_not(None),
+                    Order.payment_attempted_at < cutoff,
+                )
+            )
+        ).all()
+        return [(order_id, payment_key) for order_id, payment_key in rows]
+
+    # 결제사 조회 결과를 주문 한 건에 짧은 트랜잭션으로 반영(조회 중 다른 요청이 바꿨으면 건너뜀)
+    # 승인 완료면 paid, 미결제·만료·전액 취소·결제 없음이면 failed로 두고 결제키를 지워 삭제 대상으로, 그 밖의 상태는 남겨 둠
+    async def apply_payment_lookup(self, order_id: int, payment_key: str, payment: dict | None) -> None:
+        order = (await self.db.execute(select(Order).where(Order.id == order_id).with_for_update())).scalar_one_or_none()
+        if order is None or order.status == STATUS_PAID or order.payment_key != payment_key:
+            await self.db.commit()
+            return
+        payment_status = (payment or {}).get("status")
+        if payment_matches(order, payment, payment_key):
+            await self._mark_paid(order, payment)
+            logger.warning("unconfirmed order recovered as paid order=%s", order.order_number)
+        elif payment_status in TOSS_UNPAID_STATUSES:
+            order.status = STATUS_FAILED
+            order.failure_message = f"결제사 확인 결과 미결제({payment_status})"
+            order.payment_key = None  # 돈이 남아 있지 않음을 확인했으므로 일반 미결제 주문처럼 하루 뒤 삭제
+        elif payment is None:
+            attempted_at = order.payment_attempted_at
+            if attempted_at is not None and attempted_at.tzinfo is None:
+                attempted_at = attempted_at.replace(tzinfo=timezone.utc)
+            if attempted_at is not None and datetime.now(timezone.utc) - attempted_at >= NOT_FOUND_FINAL_AFTER:
+                order.status = STATUS_FAILED
+                order.failure_message = "결제사 확인 결과 미결제(NOT_FOUND)"
+                order.payment_key = None
+            else:
+                # 승인 직후 조회에는 아직 결제가 보이지 않을 수 있으므로 결제키를 보존해 다음 주기에 다시 확인
+                logger.warning("unconfirmed order not found yet; keeping payment key order=%s", order.order_number)
+        elif payment_status not in TOSS_NOT_FINAL_STATUSES:
+            logger.error("unconfirmed order needs manual review order=%s status=%s", order.order_number, payment_status)
+        await self.db.commit()
+
+    # 결제하지 않고 하루가 지난 주문을 정리(결제키가 남은 주문은 결제사에서 미결제를 확인해 결제키를 지운 뒤에만 삭제)
     async def purge_unpaid_orders(self, commit: bool = True) -> int:
         cutoff = datetime.now(timezone.utc) - timedelta(days=1)
-        result = await self.db.execute(delete(Order).where(Order.status != STATUS_PAID, Order.created_at < cutoff))
+        result = await self.db.execute(
+            delete(Order).where(Order.status != STATUS_PAID, Order.created_at < cutoff, Order.payment_key.is_(None))
+        )
         if commit:
             await self.db.commit()
         return result.rowcount or 0

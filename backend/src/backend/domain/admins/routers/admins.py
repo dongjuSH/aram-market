@@ -9,13 +9,14 @@ from backend.core.config import settings
 from backend.core.problems import problem_response
 from backend.core.rate_limit import guard_failures
 from backend.core.security import clear_auth_cookie, set_auth_cookie
-from backend.domain.admins.schemas.admins import SignInRequest
+from backend.domain.admins.schemas.admins import MfaVerifyRequest, SignInRequest
 from backend.domain.admins.services.admins import AdminAccountService
 
 
 router = APIRouter(prefix="/admins", tags=["admins"])  # main.py에서 공통 /api 접두사 적용
 ADMIN_REFRESH_COOKIE = "admin_refresh_token"  # 관리자 리프레시 토큰 HttpOnly 쿠키 이름
 ADMIN_REFRESH_COOKIE_PATH = "/api/admins"  # 재발급·로그아웃 등 관리자 인증 API에만 전송
+ADMIN_MFA_COOKIE = "admin_mfa_token"  # 비밀번호 확인 후 2단계 인증 대기 토큰(HttpOnly, 5분)
 
 
 # 접근·리프레시 쿠키 발급(토큰은 응답 본문에서 제거)
@@ -53,6 +54,24 @@ async def signin(
 ):
     client_ip = get_client_ip(http_request)  # 신뢰 프록시가 전달한 X-Forwarded-For만 사용
     result = await admin_service.signin(request, client_ip)
+    if result.get("mfa_required"):
+        # 대기 토큰도 JS가 읽지 못하는 쿠키로만 전달하고 로그인 쿠키는 아직 발급하지 않음
+        set_auth_cookie(response, ADMIN_MFA_COOKIE, result.pop("mfa_token"), max_age=5 * 60, path=ADMIN_REFRESH_COOKIE_PATH)
+        return result
+    return issue_login_cookies(response, result)
+
+
+# 비밀번호 확인 뒤 인증 앱 6자리 코드(또는 복구 코드)로 로그인 완료
+@router.post("/signin/mfa", status_code=status.HTTP_200_OK)
+async def verify_mfa(
+    request: MfaVerifyRequest,
+    http_request: Request,
+    response: Response,
+    mfa_token: str | None = Cookie(default=None, alias=ADMIN_MFA_COOKIE),
+    admin_service: AdminAccountService = Depends(AdminAccountService),
+):
+    result = await admin_service.verify_mfa(mfa_token, request, get_client_ip(http_request))
+    clear_auth_cookie(response, ADMIN_MFA_COOKIE, path=ADMIN_REFRESH_COOKIE_PATH)
     return issue_login_cookies(response, result)
 
 

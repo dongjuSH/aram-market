@@ -6,7 +6,7 @@ from backend.core.client_ip import get_client_ip
 from backend.core.dependencies import USER_ACCESS_COOKIE, require_user_token
 from backend.core.errors import api_error
 from backend.core.problems import problem_response
-from backend.core.rate_limit import check_limit, enforce_limit, guard_failures, record_attempt
+from backend.core.rate_limit import enforce_limit, guard_failures
 from backend.core.security import clear_auth_cookie, set_auth_cookie
 from backend.domain.users.schemas.users import (
     CancelWithdrawalRequest,
@@ -142,14 +142,16 @@ async def signin(
     response: Response,
     user_service: UserService = Depends(UserService),
 ):
-    client_ip = get_client_ip(http_request)
-    await check_limit(user_service.db, "login-fail-ip", client_ip, 20, 15 * 60)  # 공용 IP 사용자를 고려한 넉넉한 실패 한도
-    try:
-        result = await user_service.signin(request)
-    except HTTPException as error:
-        if error.detail.get("code") == "INVALID_CREDENTIALS":
-            await record_attempt(user_service.db, "login-fail-ip", client_ip)
-        raise
+    # 아이디·비밀번호 오류만 접속 IP당 15분 20회까지 셈(공용 IP 사용자를 고려한 넉넉한 한도, 동시 요청도 한도 안에서만 통과)
+    result = await guard_failures(
+        user_service.db,
+        "login-fail-ip",
+        get_client_ip(http_request),
+        20,
+        15 * 60,
+        lambda: user_service.signin(request),
+        is_failure=lambda error: isinstance(error.detail, dict) and error.detail.get("code") == "INVALID_CREDENTIALS",
+    )
     return issue_login_cookie(response, result)
 
 

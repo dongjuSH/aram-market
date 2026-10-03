@@ -12,6 +12,11 @@ export function signIn({ username, password }) {
   return request('/api/admins/signin', { body: { username, password } })
 }
 
+// 비밀번호 확인 뒤 인증 앱 6자리 코드(또는 복구 코드)로 로그인 완료(대기 토큰은 HttpOnly 쿠키로 전송)
+export function verifyMfa({ code }) {
+  return request('/api/admins/signin/mfa', { body: { code } })
+}
+
 // 인증 쿠키 기반 현재 관리자 확인
 export function getCurrentUser() {
   return request('/api/admins/me', { method: 'GET' })

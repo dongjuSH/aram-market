@@ -3,7 +3,7 @@
 from pydantic import BaseModel, Field, field_validator
 
 from backend.core.address import AddressFields
-from backend.core.validators import MAX_DB_ID
+from backend.core.validators import MAX_DB_ID, MAX_ORDER_PAYMENT_AMOUNT, MIN_CARD_PAYMENT_AMOUNT
 
 
 # 주문할 상품 한 줄
@@ -33,7 +33,7 @@ class OrderCreateRequest(BaseModel):
 class OrderConfirmRequest(BaseModel):
     payment_key: str = Field(min_length=1, max_length=200)
     order_id: str = Field(min_length=6, max_length=64)
-    amount: int = Field(gt=0, le=MAX_DB_ID)
+    amount: int = Field(ge=MIN_CARD_PAYMENT_AMOUNT, le=MAX_ORDER_PAYMENT_AMOUNT)
 
 
 # 관리자가 변경하는 다음 배송 단계

@@ -6,7 +6,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from backend.core.validators import MAX_DB_ID
+from backend.core.validators import MAX_DB_ID, MAX_ORDER_PAYMENT_AMOUNT, MIN_CARD_PAYMENT_AMOUNT
 
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif"}  # 화면에서 허용하는 이미지 MIME 형식
@@ -37,7 +37,7 @@ class ProductWriteRequest(BaseModel):
     category_id: int = Field(gt=0, le=MAX_DB_ID)
     name: str = Field(min_length=1, max_length=50)
     code: str = Field(min_length=1, max_length=50)
-    price: int = Field(ge=0, le=9_999_999_999_999)
+    price: int = Field(ge=MIN_CARD_PAYMENT_AMOUNT, le=MAX_ORDER_PAYMENT_AMOUNT)
     image_data: str | None = None
     image_name: str = Field(min_length=1, max_length=255)
     image_description: str | None = Field(default=None, max_length=200)

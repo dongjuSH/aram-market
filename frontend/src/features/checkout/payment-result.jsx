@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { confirmPayment } from '../../api/orders.js'
 import { clearCheckoutDraft, loadCheckoutDraft, saveNewAddress } from './checkout.js'
+import { paymentErrorState } from './payment-result-state.js'
 import CustomerAccountShell from '../../components/user/customer-account-shell.jsx'
 import { CHECKOUT_PATH, CUSTOMER_PRODUCTS_PATH, USER_MY_PAGE_PATH } from '../../config/routes.js'
 
@@ -27,7 +28,7 @@ export function PaymentSuccessPage({ onNavigate }) {
         clearCheckoutDraft() // 결제가 끝났으니 주문 초안(배송지 포함)을 지움
         setState({ status: 'success', order, addressSaved })
       })
-      .catch((error) => setState({ status: 'failed', message: error.message }))
+      .catch((error) => setState(paymentErrorState(error)))
   }, [isValid, paymentKey, orderId, amount])
 
   return (
@@ -37,11 +38,13 @@ export function PaymentSuccessPage({ onNavigate }) {
           <p className="auth-eyebrow">PAYMENT</p>
           <h1 id="payment-title">
             {state.status === 'loading' && '결제 확인 중'}
+            {state.status === 'pending' && '결제 결과 확인 중'}
             {state.status === 'success' && '결제가 완료되었습니다'}
             {state.status === 'failed' && '결제에 실패했습니다'}
           </h1>
           <p className="auth-description" role="status">
             {state.status === 'loading' && '결제 결과를 확인하고 있습니다. 창을 닫지 말아 주세요.'}
+            {state.status === 'pending' && state.message}
             {state.status === 'failed' && state.message}
           </p>
         </header>
@@ -57,8 +60,13 @@ export function PaymentSuccessPage({ onNavigate }) {
         )}
         {state.status !== 'loading' && (
           <div className="signup-actions">
-            <button className="primary-button" type="button" onClick={() => onNavigate(state.status === 'success' ? USER_MY_PAGE_PATH : CUSTOMER_PRODUCTS_PATH, { replace: true })}>
-              {state.status === 'success' ? '주문 내역 보기' : '쇼핑 계속하기'}
+            <button className="primary-button" type="button" onClick={() => {
+              if (state.status === 'pending') window.location.reload()
+              else onNavigate(state.status === 'success' ? USER_MY_PAGE_PATH : CUSTOMER_PRODUCTS_PATH, { replace: true })
+            }}>
+              {state.status === 'success' && '주문 내역 보기'}
+              {state.status === 'pending' && '결제 결과 다시 확인'}
+              {state.status === 'failed' && '쇼핑 계속하기'}
             </button>
           </div>
         )}

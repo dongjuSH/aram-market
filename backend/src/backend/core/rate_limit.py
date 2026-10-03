@@ -2,17 +2,20 @@
 
 import hashlib
 import hmac
+import logging
 import math
 from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable, TypeVar
 
 from fastapi import HTTPException, status
-from sqlalchemy import DateTime, String, delete, func, select
+from sqlalchemy import DateTime, String, delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.core.config import settings
 from backend.core.database import Base
+
+logger = logging.getLogger(__name__)
 
 
 # 제한 대상(원문 대신 HMAC 해시)별 시도 시각 기록
@@ -44,10 +47,12 @@ def rate_limited_error(retry_after: int) -> HTTPException:
     )
 
 
-# 기록 없이 현재 윈도우의 시도 횟수가 한도에 도달했는지 확인(도달했으면 429)
-async def check_limit(db: AsyncSession, name: str, value: str, limit: int, window_seconds: int) -> None:
+# 같은 버킷의 "횟수 확인 + 기록"을 한 트랜잭션에서 버킷 단위 잠금으로 직렬화해 이번 시도를 예약(기록 id 반환)
+# 동시 요청이 모두 기록 전 횟수를 읽고 통과하는 경쟁을 막는다(잠금은 커밋 시 자동 해제, 서버 여러 대에서도 동일)
+async def reserve_attempt(db: AsyncSession, name: str, value: str, limit: int, window_seconds: int) -> int:
     now = datetime.now(timezone.utc)
     key = bucket_key(name, value)
+    await db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:bucket, 0))"), {"bucket": key})
     count, oldest = (
         await db.execute(
             select(func.count(), func.min(RateLimitEvent.created_at)).where(
@@ -57,43 +62,69 @@ async def check_limit(db: AsyncSession, name: str, value: str, limit: int, windo
         )
     ).one()
     if count >= limit and oldest is not None:
+        await db.commit()  # 잠금 해제(바꾼 데이터 없음)
         oldest = oldest if oldest.tzinfo else oldest.replace(tzinfo=timezone.utc)
         raise rate_limited_error(max(1, math.ceil((oldest + timedelta(seconds=window_seconds) - now).total_seconds())))
+    event = RateLimitEvent(bucket=key)
+    db.add(event)
+    await db.commit()
+    return event.id
 
 
-# 시도 1회 기록
-async def record_attempt(db: AsyncSession, name: str, value: str) -> None:
-    db.add(RateLimitEvent(bucket=bucket_key(name, value)))
+# 예약 기록 삭제를 현재 트랜잭션에 넣기만 함(호출한 쪽의 변경과 같은 커밋으로 반영)
+async def discard_attempt(db: AsyncSession, attempt_id: int) -> None:
+    await db.execute(delete(RateLimitEvent).where(RateLimitEvent.id == attempt_id))
+
+
+# 실패가 아니었던 시도의 예약 기록을 지움(정상 요청은 횟수에 넣지 않음)
+async def release_attempt(db: AsyncSession, attempt_id: int) -> None:
+    await discard_attempt(db, attempt_id)
     await db.commit()
 
 
 # 한도 확인 후 이번 시도를 기록(메일 발송처럼 요청 자체가 비용인 경우)
 async def enforce_limit(db: AsyncSession, name: str, value: str, limit: int, window_seconds: int) -> None:
-    await check_limit(db, name, value, limit, window_seconds)
-    await record_attempt(db, name, value)
+    await reserve_attempt(db, name, value, limit, window_seconds)
 
 
 T = TypeVar("T")
 NOT_FAILURE_CODES = {"REFRESH_IN_PROGRESS", "RATE_LIMITED"}  # 동시 탭 경합·이미 제한된 요청은 실패로 세지 않음
 
 
-# 토큰 확인 계열 요청: 한도에 도달했으면 차단하고, 4xx 실패만 기록(정상 요청은 세지 않음)
+# 기본 실패 기준: 4xx 응답(동시 탭 경합·요청 제한 제외)
+def is_client_failure(error: HTTPException) -> bool:
+    code = error.detail.get("code") if isinstance(error.detail, dict) else None
+    return 400 <= error.status_code < 500 and code not in NOT_FAILURE_CODES
+
+
+# 실패만 세는 요청: 시도를 먼저 예약해 동시 요청도 한도 안에서만 통과시키고, 실패가 아니면 예약을 지움
 async def guard_failures(
     db: AsyncSession,
     name: str,
-    client_ip: str,
+    value: str,
     limit: int,
     window_seconds: int,
     action: Callable[[], Awaitable[T]],
+    is_failure: Callable[[HTTPException], bool] = is_client_failure,
 ) -> T:
-    await check_limit(db, name, client_ip, limit, window_seconds)
+    attempt_id = await reserve_attempt(db, name, value, limit, window_seconds)
     try:
-        return await action()
+        result = await action()
     except HTTPException as error:
-        code = error.detail.get("code") if isinstance(error.detail, dict) else None
-        if 400 <= error.status_code < 500 and code not in NOT_FAILURE_CODES:
-            await record_attempt(db, name, client_ip)
+        if not is_failure(error):
+            await db.rollback()  # 처리 중 남은 미완료 변경이 예약 삭제 커밋에 섞이지 않게 함
+            await release_attempt(db, attempt_id)
         raise
+    except Exception:
+        try:
+            await db.rollback()
+            await release_attempt(db, attempt_id)
+        except Exception:
+            # 서버 오류 원인을 가리지 않도록 예약 정리 실패는 경고만 남김(하루 뒤 정리 작업이 삭제)
+            logger.warning("rate limit reservation cleanup failed bucket=%s", name, exc_info=True)
+        raise
+    await release_attempt(db, attempt_id)
+    return result
 
 
 # 하루 지난 시도 기록 삭제

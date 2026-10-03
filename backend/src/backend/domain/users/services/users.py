@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.core.errors import api_error
 from backend.core.config import settings
 from backend.core.database import get_db
+from backend.core.rate_limit import discard_attempt, release_attempt, reserve_attempt
 from backend.core.security import (
     create_token,
     decode_token,
@@ -42,6 +43,7 @@ from backend.domain.users.services.email import (
     send_email_change_email,
     send_email_verification_email,
     send_password_reset_email,
+    send_security_notice_email,
     send_username_reminder_email,
 )
 
@@ -52,6 +54,7 @@ STATUS_ACTIVE = "active"  # 정상 이용 계정
 STATUS_PENDING_DELETION = "pending_deletion"  # 7일 탈퇴 취소 유예 계정
 STATUS_WITHDRAWN = "withdrawn"  # 유예 종료 후 Cron 삭제 대상 계정
 DUMMY_PASSWORD_HASH = hash_password("Dummy!Password1")  # 미가입 아이디 응답시간 차이 완화용 해시
+PASSWORD_CONFIRM_LIMIT = (5, 15 * 60)  # 로그인 상태의 비밀번호 확인(비밀번호·이메일 변경, 탈퇴) 실패: 회원당 15분에 5회
 
 
 # 계정 존재·잠금·실패 횟수를 노출하지 않는 공통 로그인 실패 오류
@@ -72,11 +75,50 @@ def as_utc(value: datetime | None) -> datetime | None:
     return value.astimezone(timezone.utc)
 
 
+# 알림 메일에 넣을 이메일 일부 가림(예: hong@example.com → ho**@example.com)
+def mask_email(email: str) -> str:
+    local, _, domain = email.partition("@")
+    return f"{local[:2]}{'*' * max(2, len(local) - 2)}@{domain}"
+
+
 # 사용자 가입·로그인·복구·잠금·탈퇴 서비스
 class UserService:
     # 요청 범위의 비동기 DB 세션 주입
     def __init__(self, db: AsyncSession = Depends(get_db)):
         self.db = db
+
+    # 로그인 상태에서 현재 비밀번호 확인(회원당 실패 횟수 제한, 초과 시 429)
+    # 반환된 회원 행은 잠긴 상태이며, 호출한 쪽이 계정 변경과 함께 커밋해야 잠금이 풀리고 성공 시도 기록도 지워진다
+    async def _lock_and_confirm_password(self, user: User, password: str, code: str, message: str) -> User:
+        # 1) 시도를 먼저 예약(커밋)해 동시에 여러 번 보내도 한도 안에서만 확인
+        attempt_id = await reserve_attempt(self.db, "password-confirm-user", str(user.id), *PASSWORD_CONFIRM_LIMIT)
+        # 2) 회원 행을 잠그고 최신 값으로 다시 읽음: 동시에 온 비밀번호 변경·탈퇴는 여기서 한 요청씩 처리
+        expected_version = user.auth_version
+        locked = await self._get_user_for_update(user.id)
+        if locked is None or locked.status != STATUS_ACTIVE or locked.auth_version != expected_version:
+            # 앞선 요청이 이미 비밀번호를 바꿨거나 탈퇴해 이 로그인은 무효(비밀번호 실패가 아니므로 예약 삭제)
+            await self.db.rollback()
+            await release_attempt(self.db, attempt_id)
+            raise api_error(status.HTTP_401_UNAUTHORIZED, "INVALID_ACCESS_TOKEN", "로그인이 만료되었습니다.")
+        # 3) 잠근 최신 해시로 확인: 틀리면 예약 기록을 남겨 실패로 셈
+        if not verify_password(password, locked.password_hash):
+            raise api_error(status.HTTP_401_UNAUTHORIZED, code, message)
+        await discard_attempt(self.db, attempt_id)
+        return locked
+
+    # 메일 링크 토큰으로 계정을 바꾸는 요청: 회원 행을 잠가 같은 토큰의 동시 요청이 모두 통과하지 못하게 함
+    async def _get_user_for_update(self, user_id: int) -> User | None:
+        # 같은 세션에서 앞서 읽은 회원 객체가 있어도 잠금 시점의 DB 값으로 덮어씀(populate_existing)
+        query = select(User).where(User.id == user_id).with_for_update().execution_options(populate_existing=True)
+        return (await self.db.execute(query)).scalar_one_or_none()
+
+    # 계정 보안 변경 알림 메일(발송 실패는 요청 결과에 영향을 주지 않음)
+    async def _notify_security_change(self, user: User, to_email: str, title: str, message_text: str) -> None:
+        try:
+            await send_security_notice_email(user, to_email, title, message_text)
+        except Exception as mail_error:
+            # 예외 문자열에 수신 주소가 들어갈 수 있어 종류만 기록
+            logger.error("계정 보안 알림 메일 발송에 실패했습니다. user_id=%s error=%s", user.id, type(mail_error).__name__)
 
     # 탈퇴 유예기간과 추가 보관기간이 모두 끝난 계정을 실제 DB에서 삭제
     async def purge_expired_accounts(self, now: datetime | None = None, commit: bool = True) -> int:
@@ -153,8 +195,9 @@ class UserService:
         )
         try:
             email_sent = await send_email_verification_email(user, token)
-        except Exception:
-            logger.exception("이메일 인증 메일 발송에 실패했습니다.")
+        except Exception as mail_error:
+            # 예외 문자열에 수신 주소가 들어갈 수 있어 종류만 기록
+            logger.error("이메일 인증 메일 발송에 실패했습니다. error=%s", type(mail_error).__name__)
             return False
         if email_sent:
             user.email_verification_sent_at = datetime.now(timezone.utc)
@@ -173,7 +216,7 @@ class UserService:
         except ValueError as error:
             raise invalid_error from error
 
-        user = await self.db.get(User, payload["sub"])
+        user = await self._get_user_for_update(payload["sub"])  # 같은 링크 동시 사용 시 한 요청씩 처리
         if not user or user.email != payload.get("email") or user.status == STATUS_WITHDRAWN:
             raise invalid_error
 
@@ -307,7 +350,8 @@ class UserService:
     # 비밀번호 오류 횟수·잠금 상태·탈퇴 유예 상태 확인 후 로그인
     async def signin(self, request: SignInRequest) -> dict:
         user = (
-            await self.db.execute(select(User).where(User.username == request.username))
+            # 실패 횟수·잠금 갱신을 회원별로 직렬화해 동시 대입 요청의 lost update를 막음
+            await self.db.execute(select(User).where(User.username == request.username).with_for_update())
         ).scalar_one_or_none()
 
         if not user:
@@ -394,11 +438,15 @@ class UserService:
         if user.login_fail_count >= MAX_LOGIN_FAILURES:
             user.locked_until = now + LOCK_DURATION
             await self.db.commit()
-            unlock_token = create_token(user.id, "user_unlock", settings.unlock_token_expire_minutes)
+            # 잠금 시각을 넣어 해제(잠금 시각 삭제) 후에는 같은 링크를 다시 쓸 수 없게 함
+            unlock_token = create_token(
+                user.id, "user_unlock", settings.unlock_token_expire_minutes, {"lock": int(user.locked_until.timestamp())}
+            )
             try:
                 email_sent = await send_account_unlock_email(user, unlock_token)
-            except Exception:
-                logger.exception("계정 잠금 해제 이메일 발송에 실패했습니다.")
+            except Exception as mail_error:
+                # 예외 문자열에 수신 주소가 들어갈 수 있어 종류만 기록
+                logger.error("계정 잠금 해제 이메일 발송에 실패했습니다. error=%s", type(mail_error).__name__)
                 email_sent = False
 
             if not email_sent:
@@ -444,11 +492,12 @@ class UserService:
         )
         return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
 
-    # 해시로 리프레시 토큰 행 조회
-    async def _get_refresh_row(self, token_hash: str) -> UserRefreshToken | None:
-        return (
-            await self.db.execute(select(UserRefreshToken).where(UserRefreshToken.token_hash == token_hash))
-        ).scalar_one_or_none()
+    # 해시로 리프레시 토큰 행 조회(재발급 때는 행을 잠가 여러 창의 동시 재발급이 한 번씩 차례로 처리되게 함)
+    async def _get_refresh_row(self, token_hash: str, lock: bool = False) -> UserRefreshToken | None:
+        query = select(UserRefreshToken).where(UserRefreshToken.token_hash == token_hash)
+        if lock:
+            query = query.with_for_update()
+        return (await self.db.execute(query)).scalar_one_or_none()
 
     # 접근 토큰의 sid에 해당하는 로그인 세션이 폐기·만료되지 않았는지 확인
     async def _is_session_alive(self, session_id: str) -> bool:
@@ -484,7 +533,7 @@ class UserService:
     # 리프레시 토큰을 검증·회전해 새 접근·리프레시 토큰 발급(폐기된 토큰 재사용 시 세션 전체 폐기)
     async def refresh_session(self, refresh_token: str) -> dict:
         invalid = api_error(status.HTTP_401_UNAUTHORIZED, "INVALID_REFRESH_TOKEN", "로그인이 만료되었습니다. 다시 로그인해 주세요.")
-        row = await self._get_refresh_row(hash_refresh_token(refresh_token))
+        row = await self._get_refresh_row(hash_refresh_token(refresh_token), lock=True)
         if not row:
             raise invalid
 
@@ -568,8 +617,8 @@ class UserService:
     # 현재 비밀번호 확인 후 새 이메일로 확인 메일 발송(이메일은 링크 확인 전까지 바뀌지 않음)
     async def request_email_change(self, token: str, request: EmailChangeRequest) -> dict:
         user = await self._get_user_from_access_token(token)
-        if not verify_password(request.password, user.password_hash):
-            raise api_error(status.HTTP_401_UNAUTHORIZED, "INVALID_PASSWORD", "비밀번호가 일치하지 않습니다.")
+        user = await self._lock_and_confirm_password(user, request.password, "INVALID_PASSWORD", "비밀번호가 일치하지 않습니다.")
+        await self.db.commit()  # 메일 발송만 하므로 바로 잠금 해제·성공 시도 기록 삭제
         if request.new_email == user.email:
             raise api_error(status.HTTP_400_BAD_REQUEST, "EMAIL_UNCHANGED", "현재 사용 중인 이메일과 다른 주소를 입력해 주세요.")
         taken = (await self.db.execute(select(User.id).where(User.email == request.new_email))).scalar_one_or_none()
@@ -580,12 +629,14 @@ class UserService:
             user.id,
             "user_email_change",
             settings.email_verification_token_expire_minutes,
-            {"new_email": request.new_email, "ver": user.auth_version},
+            # 요청 당시 이메일을 넣어 다른 이메일 변경이 먼저 완료되면 이 링크는 무효
+            {"new_email": request.new_email, "current_email": user.email, "ver": user.auth_version},
         )
         try:
             sent = await send_email_change_email(user, request.new_email, email_token)
-        except Exception:
-            logger.exception("이메일 변경 확인 메일 발송에 실패했습니다.")
+        except Exception as mail_error:
+            # 예외 문자열에 수신 주소가 들어갈 수 있어 종류만 기록
+            logger.error("이메일 변경 확인 메일 발송에 실패했습니다. error=%s", type(mail_error).__name__)
             sent = False
         if not sent:
             raise api_error(status.HTTP_503_SERVICE_UNAVAILABLE, "EMAIL_SEND_FAILED", "확인 메일을 보내지 못했습니다. 잠시 후 다시 시도해 주세요.")
@@ -603,15 +654,18 @@ class UserService:
         except ValueError as error:
             raise invalid_error from error
 
-        user = await self.db.get(User, payload["sub"])
+        user = await self._get_user_for_update(payload["sub"])  # 같은 링크 동시 사용 시 한 요청씩 처리
         new_email = payload.get("new_email")
         if not user or user.status != STATUS_ACTIVE or payload.get("ver") != user.auth_version or not new_email:
             raise invalid_error
         if user.email == new_email:
             return {"message": "이메일이 변경되었습니다."}
+        if payload.get("current_email") != user.email:
+            raise invalid_error
         taken = (await self.db.execute(select(User.id).where(User.email == new_email, User.id != user.id))).scalar_one_or_none()
         if taken is not None:
             raise api_error(status.HTTP_409_CONFLICT, "EMAIL_EXISTS", "이미 다른 계정에서 사용 중인 이메일입니다.")
+        previous_email = user.email
         user.email = new_email
         user.email_verified_at = datetime.now(timezone.utc)
         try:
@@ -619,6 +673,10 @@ class UserService:
         except IntegrityError as error:
             await self.db.rollback()
             raise api_error(status.HTTP_409_CONFLICT, "EMAIL_EXISTS", "이미 다른 계정에서 사용 중인 이메일입니다.") from error
+        # 탈취범이 이메일을 바꿔도 원래 주인이 알 수 있도록 바뀌기 전 주소로 알림(새 주소는 일부만 표시)
+        await self._notify_security_change(
+            user, previous_email, "계정 이메일이 변경되었습니다", f"계정 이메일이 {mask_email(new_email)}(으)로 변경되었습니다."
+        )
         return {"message": "이메일이 변경되었습니다."}
 
     # 계정 존재 여부를 숨기고 일치 계정에만 아이디 안내 메일 발송
@@ -635,8 +693,9 @@ class UserService:
         if user:
             try:
                 await send_username_reminder_email(user)
-            except Exception:
-                logger.exception("아이디 안내 이메일 발송에 실패했습니다.")
+            except Exception as mail_error:
+                # 예외 문자열에 수신 주소가 들어갈 수 있어 종류만 기록
+                logger.error("아이디 안내 이메일 발송에 실패했습니다. error=%s", type(mail_error).__name__)
 
         return {"message": "입력한 이메일과 일치하는 계정이 있으면 아이디 안내 메일을 보내드립니다."}
 
@@ -660,12 +719,13 @@ class UserService:
             user.id,
             "user_password_reset",
             settings.password_reset_token_expire_minutes,
-            {"ver": user.auth_version},
+            {"ver": user.auth_version, "email": user.email},  # 이메일이 바뀌면 이전 주소로 보낸 링크는 무효
         )
         try:
             await send_password_reset_email(user, token)
-        except Exception:
-            logger.exception("비밀번호 재설정 이메일 발송에 실패했습니다.")
+        except Exception as mail_error:
+            # 예외 문자열에 수신 주소가 들어갈 수 있어 종류만 기록
+            logger.error("비밀번호 재설정 이메일 발송에 실패했습니다. error=%s", type(mail_error).__name__)
         return {"message": generic_message}
 
     # 메일 링크 단기 토큰 확인 및 새 비밀번호 교체
@@ -675,8 +735,13 @@ class UserService:
         except ValueError as error:
             raise api_error(status.HTTP_400_BAD_REQUEST, "INVALID_RESET_TOKEN", str(error)) from error
 
-        user = await self.db.get(User, payload["sub"])
-        if not user or payload.get("ver") != user.auth_version or user.status != STATUS_ACTIVE:
+        user = await self._get_user_for_update(payload["sub"])  # 같은 링크 동시 사용 시 한 요청씩 처리
+        if (
+            not user
+            or payload.get("ver") != user.auth_version
+            or payload.get("email") != user.email
+            or user.status != STATUS_ACTIVE
+        ):
             raise api_error(
                 status.HTTP_400_BAD_REQUEST,
                 "INVALID_RESET_TOKEN",
@@ -696,6 +761,7 @@ class UserService:
         user.locked_until = None
         await self._revoke_user_sessions(user.id)
         await self.db.commit()
+        await self._notify_security_change(user, user.email, "비밀번호가 재설정되었습니다", "비밀번호 재설정 링크로 계정 비밀번호가 변경되었습니다.")
         return {"message": "비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요."}
 
     # 잠금 해제 메일 토큰 검증 및 로그인 잠금 초기화
@@ -705,9 +771,12 @@ class UserService:
         except ValueError as error:
             raise api_error(status.HTTP_400_BAD_REQUEST, "INVALID_UNLOCK_TOKEN", str(error)) from error
 
-        user = await self.db.get(User, payload["sub"])
+        user = await self._get_user_for_update(payload["sub"])  # 같은 링크 동시 사용 시 한 요청씩 처리
         if not user:
             raise api_error(status.HTTP_404_NOT_FOUND, "USER_NOT_FOUND", "존재하지 않는 계정입니다.")
+        locked_until = as_utc(user.locked_until)
+        if locked_until is None or payload.get("lock") != int(locked_until.timestamp()):
+            raise api_error(status.HTTP_400_BAD_REQUEST, "INVALID_UNLOCK_TOKEN", "이미 사용했거나 더 이상 유효하지 않은 잠금 해제 링크입니다.")
 
         user.login_fail_count = 0
         user.locked_until = None
@@ -716,13 +785,11 @@ class UserService:
     # 현재 비밀번호 확인 후 새 해시 저장 및 기존 로그인 토큰 무효화
     async def change_password(self, token: str, request: ChangePasswordRequest) -> dict:
         user = await self._get_user_from_access_token(token)
-        if not verify_password(request.current_password, user.password_hash):
-            raise api_error(
-                status.HTTP_401_UNAUTHORIZED,
-                "INVALID_CURRENT_PASSWORD",
-                "현재 비밀번호가 일치하지 않습니다.",
-            )
+        user = await self._lock_and_confirm_password(
+            user, request.current_password, "INVALID_CURRENT_PASSWORD", "현재 비밀번호가 일치하지 않습니다."
+        )
         if verify_password(request.new_password, user.password_hash):
+            await self.db.commit()  # 현재 비밀번호는 맞았으므로 시도 기록 삭제를 반영하고 잠금 해제
             raise api_error(
                 status.HTTP_400_BAD_REQUEST,
                 "PASSWORD_UNCHANGED",
@@ -735,19 +802,25 @@ class UserService:
         user.locked_until = None
         await self._revoke_user_sessions(user.id)
         await self.db.commit()
+        await self._notify_security_change(user, user.email, "비밀번호가 변경되었습니다", "마이 페이지에서 계정 비밀번호가 변경되었습니다.")
         return {"message": "비밀번호가 변경되었습니다. 새 비밀번호로 다시 로그인해 주세요."}
 
     # 즉시 삭제 대신 7일 복구 가능한 탈퇴 대기 상태로 전환
     async def request_account_deletion(self, token: str, request: DeleteAccountRequest) -> dict:
         user = await self._get_user_from_access_token(token)
-        if not verify_password(request.password, user.password_hash):
-            raise api_error(status.HTTP_401_UNAUTHORIZED, "INVALID_PASSWORD", "비밀번호가 일치하지 않습니다.")
+        user = await self._lock_and_confirm_password(user, request.password, "INVALID_PASSWORD", "비밀번호가 일치하지 않습니다.")
 
         user.status = STATUS_PENDING_DELETION
         user.withdrawn_at = datetime.now(timezone.utc)
         user.auth_version += 1
         await self._revoke_user_sessions(user.id)
         await self.db.commit()
+        await self._notify_security_change(
+            user,
+            user.email,
+            "회원 탈퇴가 접수되었습니다",
+            f"{settings.withdrawal_grace_days}일 이내에 로그인하면 탈퇴를 취소하고 계정을 복구할 수 있습니다. 기간이 지나면 계정 정보가 삭제됩니다.",
+        )
         return {
             "message": f"회원 탈퇴가 접수되었습니다. {settings.withdrawal_grace_days}일 이내 로그인하면 취소할 수 있습니다.",
             "grace_days": settings.withdrawal_grace_days,
@@ -760,7 +833,7 @@ class UserService:
         except ValueError as error:
             raise api_error(status.HTTP_400_BAD_REQUEST, "INVALID_RECOVERY_TOKEN", str(error)) from error
 
-        user = await self.db.get(User, payload["sub"])
+        user = await self._get_user_for_update(payload["sub"])  # 같은 링크 동시 사용 시 한 요청씩 처리
         if not user or user.status != STATUS_PENDING_DELETION or payload.get("ver") != user.auth_version:
             raise api_error(
                 status.HTTP_400_BAD_REQUEST,

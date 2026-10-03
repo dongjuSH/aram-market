@@ -1,9 +1,11 @@
-# 배송지 주소록과 주문 배송지(core/address.py)가 함께 쓰는 받는 분 이름·휴대폰 입력 검증
+# 여러 도메인이 함께 쓰는 DB 식별자·결제 금액·받는 분 정보 입력 검증
 
 import re
 
 # PostgreSQL integer 컬럼 상한(이보다 큰 번호는 DB 오류(500) 대신 입력 검증 오류로 처리)
 MAX_DB_ID = 2_147_483_647
+MIN_CARD_PAYMENT_AMOUNT = 100  # 현재 제공하는 토스 카드 결제의 최소 금액
+MAX_ORDER_PAYMENT_AMOUNT = MAX_DB_ID  # 프런트·결제 승인 요청이 안전하게 동일하게 다루는 주문 금액 상한
 
 
 # 공백을 제거한 이름이 2~30자인지 확인

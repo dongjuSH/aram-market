@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select, text
 
 from backend.core.config import settings
+from backend.core.monitoring import init_sentry
 from backend.core.database import Base, async_session, engine
 from backend.core.errors import api_error
 from backend.core.problems import http_exception_handler, unhandled_exception_handler, validation_exception_handler
@@ -33,6 +34,7 @@ from backend.domain.reviews.models.reviews import ProductReview  # noqa: F401 - 
 from backend.domain.reviews.routers.reviews import router as review_router
 from backend.domain.orders.models.orders import Order, OrderItem  # noqa: F401 - 주문 테이블 메타데이터 등록
 from backend.domain.orders.routers.orders import admin_router as admin_order_router, router as order_router
+from backend.domain.orders.services import toss
 from backend.domain.orders.services.orders import OrderService
 from backend.domain.wishlists.models.wishlists import WishlistItem  # noqa: F401 - 찜 테이블 메타데이터 등록
 from backend.domain.wishlists.routers.wishlists import router as wishlist_router
@@ -81,7 +83,23 @@ async def run_cleanup_once() -> None:
         await purge_rate_limit_events(session, commit=False)
         await OrderService(session).purge_unpaid_orders(commit=False)
         await OrderService(session).purge_expired_orders(commit=False)
-        await session.commit()
+        await session.commit()  # 여기까지 짧은 트랜잭션(정리 잠금도 함께 해제)
+    await reconcile_unconfirmed_payments()
+
+
+# 승인 결과가 저장되지 않은 주문을 결제사에 조회: 외부 호출 동안 DB 트랜잭션·연결을 쥐지 않고, 결과만 주문별 짧은 잠금으로 반영
+# (서버가 여러 대여도 주문별 잠금과 상태 재확인으로 같은 결과가 되므로 별도 정리 잠금 없이 실행)
+async def reconcile_unconfirmed_payments() -> None:
+    async with async_session() as session:
+        candidates = await OrderService(session).reconcile_candidates()
+    for order_id, payment_key in candidates:
+        try:
+            payment = await toss.get_payment(payment_key)
+        except Exception:
+            logger.warning("unconfirmed order payment lookup failed order_id=%s", order_id, exc_info=True)
+            continue
+        async with async_session() as session:
+            await OrderService(session).apply_payment_lookup(order_id, payment_key, payment)
 
 
 # 서버가 켜져 있는 동안 매시간 정리 작업 실행
@@ -122,7 +140,8 @@ async def lifespan(app: FastAPI):
         await engine.dispose()
 
 
-# FastAPI 인스턴스 생성
+# FastAPI 인스턴스 생성(Sentry는 앱보다 먼저 초기화해야 요청 오류를 잡음)
+init_sentry()
 app = FastAPI(
     title="상품 관리 관리자 API",
     description="단일 관리자 상품 관리와 고객용 공개 상품 조회 API입니다.",

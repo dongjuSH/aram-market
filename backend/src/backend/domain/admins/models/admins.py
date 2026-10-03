@@ -2,7 +2,8 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.core.database import Base
@@ -22,6 +23,12 @@ class AdminAccount(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)  # 긴급 접근 차단용 상태
     auth_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # 관리 스크립트 재설정 시 토큰 무효화 버전
+    mfa_secret_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)  # TOTP 비밀값(서버 키로 암호화, 원문 저장 안 함)
+    mfa_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # 2단계 인증 등록 시각(없으면 미등록)
+    mfa_last_used_step: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # 마지막으로 통과한 30초 단계(같은 코드 재사용 방지)
+    mfa_recovery_code_hashes: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb"), nullable=False
+    )  # 휴대폰 분실 대비 1회용 복구 코드의 HMAC 해시 목록
 
 
 # 관리자 로그인 세션별 리프레시 토큰(해시만 저장)과 회전·재사용 탐지 상태를 보관하는 테이블

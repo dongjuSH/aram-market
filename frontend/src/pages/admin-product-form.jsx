@@ -17,6 +17,9 @@ import ProductEditor from '../components/products/product-editor.jsx'
 import { ADMIN_LOGIN_PATH, ADMIN_PRODUCTS_PATH } from '../config/routes.js'
 
 
+const MIN_PRODUCT_PRICE = 100
+const MAX_PRODUCT_PRICE = 2_147_483_647
+
 const EMPTY_FORM = {
   visible: true,
   displayOrder: '',
@@ -221,7 +224,10 @@ function AdminProductFormPage({ mode, onNavigate }) {
     if (!form.categoryId) throw new Error('카테고리를 선택해 주세요.')
     if (!form.name.trim()) throw new Error('상품명을 입력해 주세요.')
     if (!form.code.trim()) throw new Error('상품코드를 입력해 주세요.')
-    if (form.price === '' || Number(form.price) < 0) throw new Error('가격을 0 이상의 숫자로 입력해 주세요.')
+    const price = Number(form.price)
+    if (!Number.isInteger(price) || price < MIN_PRODUCT_PRICE || price > MAX_PRODUCT_PRICE) {
+      throw new Error(`가격을 ${MIN_PRODUCT_PRICE.toLocaleString('ko-KR')}원 이상 ${MAX_PRODUCT_PRICE.toLocaleString('ko-KR')}원 이하의 정수로 입력해 주세요.`)
+    }
     if (!form.imageData && !form.imageUrl) throw new Error('상품 이미지를 첨부해 주세요.')
     const relatedIds = form.relatedProductIds.filter(Boolean).map(Number)
     if (new Set(relatedIds).size !== relatedIds.length) throw new Error('같은 관련 상품을 중복 선택할 수 없습니다.')
@@ -231,7 +237,7 @@ function AdminProductFormPage({ mode, onNavigate }) {
       category_id: Number(form.categoryId),
       name: form.name.trim(),
       code: form.code.trim(),
-      price: Number(form.price),
+      price,
       image_data: form.imageData || null,
       image_name: form.imageName,
       image_description: form.imageDescription.trim() || null,
@@ -350,7 +356,7 @@ function AdminProductFormPage({ mode, onNavigate }) {
 
           <label className="product-form-field">
             <span>가격 <b>*</b></span>
-            <input type="number" min="0" step="1" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} placeholder="숫자만 입력 가능합니다." />
+            <input type="number" min={MIN_PRODUCT_PRICE} max={MAX_PRODUCT_PRICE} step="1" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} placeholder="숫자만 입력 가능합니다." />
           </label>
 
           <div className="product-form-field">

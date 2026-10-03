@@ -45,6 +45,14 @@ class Settings:
     cors_origins: tuple[str, ...] = tuple(
         item.strip().rstrip("/") for item in os.getenv("CORS_ORIGINS", FRONTEND_URL_DEFAULT).split(",") if item.strip()
     )  # 브라우저 교차 출처 요청을 허용할 화면 주소(쉼표 구분, 기본은 FRONTEND_URL 하나)
+    admin_mfa_required: bool = _as_bool(
+        os.getenv("ADMIN_MFA_REQUIRED"), FRONTEND_URL_DEFAULT.startswith("https://")
+    )  # 관리자 2단계 인증 필수 여부(https 운영 기본 true: 미등록이면 로그인 차단)
+    sentry_dsn: str = os.getenv("SENTRY_DSN", "").strip()  # 비우면 Sentry 오류 수집을 끔
+    sentry_environment: str = os.getenv(
+        "SENTRY_ENVIRONMENT", "production" if FRONTEND_URL_DEFAULT.startswith("https://") else "development"
+    )  # Sentry에서 로컬·운영 오류를 구분하는 환경 이름
+    sentry_release: str = os.getenv("SENTRY_RELEASE", "")  # 배포 버전(예: 커밋 해시), 비우면 표시 안 함
     api_docs_enabled: bool = _as_bool(os.getenv("API_DOCS_ENABLED"), not FRONTEND_URL_DEFAULT.startswith("https://"))  # /docs·/redoc·/openapi.json 공개 여부(https 화면이면 기본 끔)
     smtp_host: str = os.getenv("SMTP_HOST", "")  # 메일 공급자의 SMTP 호스트
     smtp_port: int = int(os.getenv("SMTP_PORT", "587"))  # STARTTLS 587, SSL 465

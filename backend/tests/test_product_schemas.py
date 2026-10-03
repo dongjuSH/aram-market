@@ -47,6 +47,11 @@ class ProductSchemaTests(unittest.TestCase):
         self.assertEqual(request.related_product_ids, [2, 3])
         self.assertEqual(request.code, "TEST-001")
 
+    def test_price_must_fit_supported_card_payment_range(self):
+        for price in (0, 99, 2_147_483_648):
+            with self.subTest(price=price), self.assertRaises(ValidationError):
+                ProductCreateRequest(**product_payload(price=price))
+
     def test_rejects_duplicate_or_more_than_two_related_products(self):
         with self.assertRaises(ValidationError):
             ProductCreateRequest(**product_payload(related_product_ids=[2, 2]))
@@ -82,11 +87,19 @@ class ProductSchemaTests(unittest.TestCase):
         self.assertNotIn("javascript:", sanitized)
         self.assertIn("안전", sanitized)
 
-    def test_keeps_storage_image_and_removes_unsafe_image_source(self):
-        sanitized = sanitize_detail_html(
-            '<img src="https://example.supabase.co/image.png" alt="상품"><img src="javascript:bad()">'
-        )
-        self.assertIn("https://example.supabase.co/image.png", sanitized)
+    def test_keeps_only_own_storage_images(self):
+        from backend.domain.products.services.storage import product_storage
+
+        with patch.object(product_storage, "base_url", "https://example.supabase.co"), patch.object(product_storage, "bucket", "product-images"):
+            own = "https://example.supabase.co/storage/v1/object/public/product-images/products/food/a.png"
+            sanitized = sanitize_detail_html(
+                f'<img src="{own}" alt="상품"><img src="javascript:bad()">'
+                '<img src="https://evil.example/track.png">'
+                '<img src="https://example.supabase.co/storage/v1/object/public/other-bucket/a.png">'
+                '<img src="https://example.supabase.co/storage/v1/object/public/product-images/../other/a.png">'
+            )
+        self.assertIn(own, sanitized)
+        self.assertEqual(sanitized.count("<img"), 1)
         self.assertNotIn("javascript:", sanitized)
 
     def test_storage_decoder_returns_original_image_bytes(self):

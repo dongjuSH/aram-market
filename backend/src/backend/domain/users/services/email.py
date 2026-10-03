@@ -1,13 +1,15 @@
-# 고객용 아이디 안내·계정 잠금 해제·비밀번호 재설정 메일 발송
+# 고객용 아이디 안내·계정 잠금 해제·비밀번호 재설정·보안 알림 메일 발송
 
 import asyncio
 import smtplib
+from datetime import datetime
 from email.message import EmailMessage
 from email.utils import formataddr
 from html import escape
 from pathlib import Path
 from string import Template
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 from backend.core.config import settings
 from backend.domain.users.models.users import User
@@ -163,6 +165,38 @@ async def send_email_change_email(user: User, new_email: str, token: str) -> boo
     message.set_content(
         f"{user.nickname}님, 아람 마켓 계정의 이메일을 {new_email}(으)로 변경하려면 아래 주소를 열어 확인해 주세요.\n{confirm_url}\n"
         f"링크는 {expire_hours}시간 동안 유효합니다. 본인이 요청하지 않았다면 이 메일을 무시해 주세요."
+    )
+    message.add_alternative(html, subtype="html")
+
+    await asyncio.to_thread(_send_message, message)
+    return True
+
+
+# 비밀번호·이메일 변경, 탈퇴 신청 같은 계정 보안 변경을 알림(이메일 변경은 바뀌기 전 주소로 발송)
+async def send_security_notice_email(user: User, to_email: str, title: str, message_text: str) -> bool:
+    if not settings.smtp_host or not settings.smtp_from_email:
+        return False
+
+    occurred_at = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M")
+    login_url = f"{settings.frontend_url.rstrip('/')}/user/login"
+    template = Template((TEMPLATE_DIRECTORY / "security_notice.html").read_text(encoding="utf-8"))
+    html = template.safe_substitute(
+        title=escape(title),
+        nickname=escape(user.nickname),
+        username=escape(user.username),
+        message=escape(message_text),
+        occurred_at=occurred_at,
+        login_url=escape(login_url, quote=True),
+    )
+
+    message = EmailMessage()
+    message["Subject"] = f"[아람 마켓] {title}"
+    message["From"] = formataddr((settings.smtp_from_name, settings.smtp_from_email))
+    message["To"] = to_email
+    message.set_content(
+        f"{user.nickname}님({user.username}) 계정에서 변경이 있었습니다.\n{message_text}\n"
+        f"변경 시각: {occurred_at} (한국 시간)\n"
+        f"본인이 한 변경이 아니라면 즉시 비밀번호를 재설정해 주세요: {login_url}"
     )
     message.add_alternative(html, subtype="html")
 
