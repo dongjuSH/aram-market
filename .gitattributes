@@ -1,0 +1,3 @@
+deploy/README.md text eol=lf
+deploy/nginx/*.conf text eol=lf
+deploy/systemd/*.service text eol=lf

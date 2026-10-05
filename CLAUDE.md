@@ -33,7 +33,9 @@ Claude가 지킬 사용자 선호(이전 기억 파일에서 옮김):
 - 결제·인증·동시성 변경은 아래 '작업 원칙'의 검증 원칙 1~7을 따른다.
 - **실제 배포 때 반드시 다시 안내할 것**: 운영(https)에서는 `ADMIN_MFA_REQUIRED`가 자동으로 켜지고 운영용 새 `AUTH_SECRET_KEY`로 기존 MFA 등록이 무효가 되므로, 배포 직후 관리자 로그인 전에 서버에서 `scripts/setup_admin_mfa.py`로 재등록해야 한다(안 하면 503 `ADMIN_MFA_NOT_CONFIGURED`로 관리자 로그인 불가).
 
-## 배포 계획 (2026-10-03 확정, 아직 진행 전)
+## 배포 구성 (2026-10-05 적용 완료)
+
+운영 주소는 `https://aram-market.duckdns.org`이다. Oracle Cloud 오사카의 Ubuntu 24.04 AMD Micro 인스턴스에 배포했으며, 확정된 Nginx·systemd 설정과 재배포 절차는 `deploy/`에 보관한다.
 
 무료 조건(포트폴리오)에서 고른 구성. 근거로 확인한 공식 자료: Render 무료 웹 서비스는 2025-09부터 SMTP 25·465·587 차단(유료는 465·587 허용), Railway는 무료·Trial·Hobby에서 SMTP 차단(Pro부터 허용), Oracle Always Free는 포트 25만 기본 차단이며 Email Delivery 월 3,000통 무료.
 
@@ -49,7 +51,7 @@ Claude가 지킬 사용자 선호(이전 기억 파일에서 옮김):
 | DB·이미지 | 기존 Supabase 프로젝트 그대로(개발·운영 겸용, '실제 상용화 시 DB 분리' 절 참고) |
 | 오류 수집 | Sentry 기존 프로젝트, 배포 후 두 프로젝트의 Inbound Filters에서 Localhost 필터 켜기 |
 
-배포 순서:
+재배포 순서:
 
 1. (사용자) 개인 PC에서 SSH 키 생성 → Oracle 콘솔(오사카)에서 VM 생성(Ubuntu 24.04, 공인 IP, 공개키 등록). 생성 화면을 Claude에게 보여 주면 값을 안내한다.
 2. (사용자) DuckDNS 서브도메인 생성 → VM 공인 IP 연결.
