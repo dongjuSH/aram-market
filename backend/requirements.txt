@@ -11,3 +11,4 @@ cryptography==50.0.2  # 관리자 2단계 인증 비밀값 암호화(Fernet)
 pyotp==2.10.0  # 관리자 TOTP 코드 검증
 qrcode==8.2  # setup_admin_mfa.py 터미널 QR 출력
 sentry-sdk[fastapi]==2.71.0  # 운영 오류 수집(SENTRY_DSN이 있을 때만 동작)
+tzdata==2026.5  # Windows·최소 Linux 환경의 ZoneInfo("Asia/Seoul") 시간대 데이터
