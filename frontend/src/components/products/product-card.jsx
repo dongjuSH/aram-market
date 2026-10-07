@@ -7,9 +7,10 @@ import { HeartIcon, StarIcon } from '../../components/common/icons.jsx'
 function ProductCard({ product, onOpen, onRemove }) {
   return (
     <article className={`product-card${onRemove ? ' product-card--removable' : ''}`}>
-      <button className="product-card__media" type="button" tabIndex={-1} aria-hidden="true" onClick={() => onOpen(product)}>
+      {/* 이미지는 마우스 클릭 전용 보조 이동이라 포커스를 받지 않는 div로 둔다(키보드·스크린리더는 아래 상품 정보 버튼 사용) */}
+      <div className="product-card__media" aria-hidden="true" onClick={() => onOpen(product)}>
         {product.image_url ? <img src={product.image_url} alt="" /> : <span className="product-card__placeholder">NO IMAGE</span>}
-      </button>
+      </div>
       {onRemove && (
         <button className="product-card__unwish" type="button" aria-label={`${product.name} 찜 해제`} title="찜 해제" onClick={() => onRemove(product)}>
           <HeartIcon />
