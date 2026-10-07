@@ -1,6 +1,6 @@
-// 고객 상품 화면에 브랜드와 사업자 정보를 제공하는 공통 푸터
+// 고객 화면 공통 푸터: 브랜드와 포트폴리오용 테스트 사이트 안내
 
-// 사이트 운영 정보를 제공하는 고객 푸터
+// 실제 사업자처럼 보이는 가상 정보 대신 테스트 사이트임을 알리는 고객 푸터
 function CatalogFooter() {
   return (
     <footer className="catalog-footer">
@@ -12,14 +12,11 @@ function CatalogFooter() {
 
         <div className="catalog-footer__information">
           <p>
-            <span>재단법인 아람마켓 한국</span>
-            <span>고유번호 123-45-67890</span>
-            <span>대표자 김아람</span>
-            <span>연락처 02-1234-5678</span>
-            <span>이메일 info@arammarket.kr</span>
-            <span>주소 서울특별시 마포구 아람로 12, 5층</span>
+            <span>포트폴리오용 테스트 사이트</span>
+            <span>실제 판매·결제·배송은 이루어지지 않습니다</span>
+            <span>결제는 토스페이먼츠 테스트 모드로만 동작합니다</span>
           </p>
-          <small>Copyright © 2026 Aram Market Korea. All rights reserved.</small>
+          <small>© 2026 Aram Market · 개인 포트폴리오 프로젝트</small>
         </div>
       </div>
     </footer>
