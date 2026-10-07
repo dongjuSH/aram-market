@@ -6,24 +6,23 @@
 
 사용자는 React와 FastAPI의 동작을 직접 이해하면서 구현하는 것이 목표다. 요청하지 않은 전체 코드 생성이나 대규모 구조 변경은 피하고, 기존 코드 기준으로 원인과 개념을 먼저 설명한 뒤 필요한 범위만 수정한다. 새로운 폴더·계층·라이브러리는 실제 필요가 생겼을 때 먼저 제안한다.
 
-## 지금 이어서 할 일 (2026-10-03 인계: 대여 노트북 → 개인 PC)
+## 지금 이어서 할 일 (2026-10-07 기준)
 
-이전 작업은 대여 노트북(macOS)에서 했고, 그 노트북은 포맷 후 반납한다. 대화 기록과 Claude 기억 파일은 넘어오지 않으므로 이 문서가 유일한 인계 자료다. 사용자는 개인 PC(Windows로 예상, 확인 필요)에서 이어서 작업한다.
+운영 배포(2026-10-05)와 배포 후 후속 작업(2026-10-07)까지 끝났고, **2026-10-07 이후 이 프로젝트는 추가 개발 없이 현재 상태로 유지한다**(사용자 결정). 다시 작업할 때는 아래 '알려진 위험'(Oracle 유휴 VM 회수)과 `deploy/README.md`의 재배포 절차부터 확인한다. 작업 환경은 개인 PC(Windows 11, PowerShell·Git Bash)이며 서버 접속 키는 `~/.ssh/oracle_aram_market`(암호 있음)이다. 서버 명령은 사용자가 SSH 창에서 직접 실행한다.
 
 현재 상태:
 
-- 배포 전 코드 작업·Claude↔Codex 교차 검수 완료, 마지막 커밋 `66dac65`(원격 `main` 푸시 완료) 이후 이 인계 문서만 갱신됨.
-- DB 마이그레이션 001~030 모두 실제 Supabase 적용 완료. 관리자 2단계 인증은 노트북의 로컬 `AUTH_SECRET_KEY` 기준으로 등록돼 있음(운영 키로 바꾸면 재등록 필요).
-- 다음 단계는 **배포**다. 호스팅·도메인·절차는 아래 '배포 계획' 절에 확정돼 있다.
+- 2026-10-07 작업은 모두 `main`에 커밋했다(`fcebfc6` 상품 카드 접근성, `69f6ee5` Sentry 소스맵·nginx 캐시, 이후 푸터·메일 안내 교체·프런트 패치 업데이트·문서). 원격 푸시와 운영 반영 여부는 `git log origin/main`과 `deploy/README.md` 상단 기록으로 확인한다.
+- 2026-10-07 완료: 상품 카드 이미지 `aria-hidden` 버튼 → 포커스 없는 `div`, Sentry 두 프로젝트 Localhost 필터(web은 브라우저 확장·구형 브라우저·크롤러 필터 포함), 로그인 실패 제한이 실제 접속자 IP 기준인지 확인(PC 429 후 휴대폰 데이터는 일반 실패), 프런트 소스맵 Sentry 업로드, nginx `index.html` no-cache·해시 자산 장기 캐시·없는 자산 404.
+- 같은 날 배포 사이트·전체 코드 검수 결과(푸터·메일 가상 사업자 정보 교체, 프런트 패치 업데이트)까지 반영했다. 남은 필수 작업은 없고, 기능 확장 후보는 '다음 작업 후보와 미구현 범위'와 '보류 목록'에 있다.
 
-개인 PC 첫 설정(사용자가 할 일 포함):
+새 PC에서 다시 시작할 때(대여 노트북 → 개인 PC 인계 때 쓴 절차):
 
-1. Git, Python 3.14, Node 24 설치 → `git clone https://github.com/dongjuSH/product-management.git`.
-2. 노트북에서 옮겨 온 `backend/.env`, `frontend/.env.local`을 같은 위치에 둔다(Git·채팅·메신저로 옮기지 않는다. 비밀번호 관리자 보안 메모나 USB 사용). 값을 다시 받을 수 있는 것: `DATABASE_URL`·Supabase 키(Supabase 대시보드), `SENTRY_DSN`·`VITE_SENTRY_DSN`(Sentry 프로젝트 `aram-market-api`·`aram-market-web`의 Client Keys), 토스 테스트 키(토스 개발자센터). `VITE_ADMIN_BASE_PATH`는 노트북 값을 그대로 쓰거나 새로 정한다(문서·커밋에 남기지 않는다).
-3. 백엔드: `cd backend` → `python -m venv .venv` → 가상환경 활성화 → `pip install -r requirements.txt` → **`pip install "fastapi[standard]"`**(로컬 `fastapi dev` 명령용 개발 도구라 `requirements.txt`에는 없다. 없으면 "To use the fastapi command, please install fastapi[standard]" 오류. 대신 `uvicorn main:app --reload --host 127.0.0.1`로 띄워도 된다).
+1. Git, Python 3.14, Node 24 설치 → `git clone https://github.com/dongjuSH/product-management.git`. 저장소 폴더 소유자가 다른 계정(예: Codex 샌드박스)이면 `git config --global --add safe.directory <경로>`.
+2. `backend/.env`, `frontend/.env.local`은 Git·채팅·메신저로 옮기지 않는다(비밀번호 관리자 보안 메모나 USB). 다시 받을 수 있는 값: `DATABASE_URL`·Supabase 키(Supabase 대시보드), `SENTRY_DSN`·`VITE_SENTRY_DSN`(Sentry 프로젝트 `aram-market-api`·`aram-market-web`의 Client Keys), 토스 테스트 키(토스 개발자센터). `VITE_ADMIN_BASE_PATH`는 문서·커밋에 남기지 않는다.
+3. 백엔드: `uv venv --python 3.14 .venv` → `uv pip install --python .venv -r requirements.txt`(로컬 `fastapi dev`를 쓰려면 `fastapi[standard]` 추가, 없으면 `uvicorn main:app --reload --host 127.0.0.1`). 이 PC의 `.venv`는 uv로 만들어 pip가 없으므로 `pip check` 대신 `uv pip check --python .venv`.
 4. 프런트: `cd frontend` → `npm ci` → `npm run dev`.
-5. 확인: 아래 '검증 명령'의 백엔드 테스트·`npm test`·`npm run lint`·`npm run build`, 로컬 화면에서 로그인·상품 상세 동작.
-6. 새 SSH 키는 **개인 PC에서 생성**한다(배포 서버 접속용, 개인키는 PC 밖으로 옮기지 않는다).
+5. 확인: 아래 '검증 명령' 전체.
 
 Claude가 지킬 사용자 선호(이전 기억 파일에서 옮김):
 
@@ -45,11 +44,11 @@ Claude가 지킬 사용자 선호(이전 기억 파일에서 옮김):
 | OS·런타임 | Ubuntu 24.04.5, 시간대 Asia/Seoul, Python 3.14.8(uv로 설치), 서버에는 Node를 두지 않음 |
 | 프런트 | 개인 PC에서 `npm run build`(운영 `VITE_*` 값으로) → `frontend/dist`만 서버로 업로드(1GB VM에서 빌드하면 메모리 부족 위험) |
 | 백엔드 | systemd 서비스로 `uvicorn main:app --host 127.0.0.1 --port 8000`(작업 디렉터리 `backend`, 워커 1개, `Restart=always`). 8000은 외부에 열지 않음 |
-| 웹 서버 | nginx 한 대가 같은 도메인에서 정적 파일(`dist`)과 `/api` 프록시를 함께 처리하고, 그 밖의 경로는 `index.html`로 돌려줌(SPA fallback). 외부 공개 포트는 80·443만(Oracle 보안 목록 + 서버 방화벽) |
+| 웹 서버 | nginx 한 대가 같은 도메인에서 정적 파일(`dist`)과 `/api` 프록시를 함께 처리하고, 그 밖의 경로는 `index.html`로 돌려줌(SPA fallback). `index.html`은 `Cache-Control: no-cache`, 해시가 붙은 JS·CSS는 장기 캐시, `/assets/`의 없는 파일은 404(`deploy/nginx/aram-market-cache.conf`). 외부 공개 포트는 22(SSH)·80·443(Oracle 보안 목록 + 서버 iptables) |
 | 도메인·HTTPS | DuckDNS 무료 서브도메인(공용 접미사 목록에 있어 Let's Encrypt 발급 한도 문제 없음) + certbot(Let's Encrypt, 자동 갱신) |
 | 메일 | 기존 SMTP(587) 연결·인증 정상. 비밀번호 재설정 메일과 운영 도메인 링크 수신 확인(일부 Gmail 스팸함 분류) |
 | DB·이미지 | 기존 Supabase 프로젝트 그대로(개발·운영 겸용, '실제 상용화 시 DB 분리' 절 참고) |
-| 오류 수집 | Sentry 기존 프로젝트, 환경 `production`. Inbound Filters의 Localhost 필터 활성화 여부는 콘솔에서 최종 확인 필요 |
+| 오류 수집 | Sentry 기존 프로젝트, 환경 `production`. 두 프로젝트 Inbound Filters의 Localhost 필터 켬(2026-10-07). 프런트 소스맵은 빌드 때 Sentry에만 업로드('오류 수집(Sentry)' 절) |
 
 운영 배포 완료 상태:
 
@@ -60,9 +59,9 @@ Claude가 지킬 사용자 선호(이전 기억 파일에서 옮김):
 5. 관리자 MFA 로그인, 고객 로그인·새로고침·로그아웃과 쿠키, SMTP·비밀번호 재설정 메일, 토스 테스트 결제, 주소 검색, API 문서 404, 인증서 갱신 모의 실행을 확인했다.
 6. 재부팅 후 스왑·iptables·systemd 자동 복구를 확인했다. 재부팅 직후 백엔드 초기화 동안 외부 헬스 체크가 일시적으로 502였으나 곧 내부·외부 모두 200으로 정상화됐다.
 
-재배포는 서버에서 `git pull --ff-only` → 백엔드 고정 의존성 동기화 → systemd 재시작 순서로 진행한다. 프런트는 개인 PC의 Node 24로 빌드한 `dist`만 업로드한다. 자세한 명령과 배포 후 검증 기준은 `deploy/README.md`를 따른다.
+7. (2026-10-07) 상품 카드 이미지 접근성 수정 배포, Sentry Localhost 필터, 로그인 실패 제한의 접속자 IP 기준 동작(PC·휴대폰 데이터), 프런트 소스맵 업로드, nginx 캐시 규칙을 적용·확인했다.
 
-남은 비차단 작업은 상품 상세 모달의 `aria-hidden`/포커스 접근성 경고 수정과 Sentry Localhost 필터 최종 확인이다. Toss 테스트 키는 포트폴리오 정책에 따라 의도적으로 유지한다.
+재배포는 서버에서 `git pull --ff-only` → 백엔드 고정 의존성 동기화 → systemd 재시작 순서로 진행한다. 프런트는 개인 PC의 Node 24로 빌드한 `dist`만 업로드한다(소스맵 업로드 시 `SENTRY_AUTH_TOKEN`). 자세한 명령과 배포 후 검증 기준은 `deploy/README.md`를 따른다. Toss 테스트 키는 포트폴리오 정책에 따라 의도적으로 유지한다.
 
 알려진 위험: Oracle 문서상 7일간 CPU(95백분위)·네트워크·메모리(A1만) 사용률이 모두 20% 미만이면 Always Free VM이 회수될 수 있다(유료 계정 예외 언급 없음). 서버 설정을 이 문서와 Git으로 재현 가능하게 유지하고, 데이터는 Supabase에 있으므로 VM이 사라져도 다시 만들면 된다. 배포 중 확정되는 nginx·systemd 설정은 저장소에 함께 기록한다(실제 도메인 외 비밀값 제외).
 
@@ -99,14 +98,15 @@ Claude가 지킬 사용자 선호(이전 기억 파일에서 옮김):
 - 상품 대표·상세 이미지는 모두 새 Storage 경로로 이전 완료
 - `products.image_data`, 상품 관리자 ID, 감사 로그 관리자 ID 같은 중복 컬럼 제거 완료
 
-자동 검증 기준:
+자동 검증 기준(2026-10-07 재실행):
 
 - 백엔드 단위 테스트 134개 통과(`tests/test_api_routes.py`가 앱 조립·인증 필요 경로·ID 범위·헬스 체크·검색어 이스케이프를 DB 없이 확인)
 - 프런트 Node 단위 테스트 6개 통과(`npm test`: Sentry 이벤트 민감정보 제거·정상 식별자 보존·같은 키 이름의 임의 데이터 정리, 결제 불확정 화면 상태)
 - Python `compileall` 통과
 - 프런트 `oxlint` 통과
 - Vite 프로덕션 빌드 통과
-- (배포 전 점검 때 추가 확인) `ruff`(F·E9·B·ASYNC, 백엔드 전체), `vulture`, `pip-audit`, `pip check`, `npm audit --omit=dev` 이상 없음
+- `ruff`(F·E9·B·ASYNC, 백엔드 전체), `vulture`, `pip-audit`, `uv pip check`, `npm audit`(개발 의존성 포함) 이상 없음
+- DB 검수 스크립트 15종 종료 코드 0(상품 30건, 관리자 MFA 등록·복구 코드 10개)
 
 ## 작업 원칙
 
@@ -197,6 +197,7 @@ product-management/
 │     ├─ features/checkout/       # 주문서·결제창(토스)·결제 결과 화면
 │     ├─ features/product-feedback/ # 상품 후기·문의 구역
 │     └─ pages/                   # 상품과 관리자 페이지
+├─ deploy/                       # 운영 Nginx·systemd 설정과 배포 기록(README.md)
 ├─ .gitignore
 └─ CLAUDE.md
 ```
@@ -266,8 +267,9 @@ npm run dev
 - 토큰·이메일 제거(2026-10-02~03 Codex 검수 반영): 백엔드 `before_send`의 `scrub_event`가 요청 주소의 쿼리·`query_string`·쿠키·본문, `Referer`·`Cookie`·`Authorization`·`X-Forwarded-For` 헤더를 지우고, 예외 메시지·로그 메시지·흐름 기록의 이메일과 토큰 형태 문자열(JWT, 32자 이상 무작위 값)을 `[Filtered]`로 바꾼다. 프런트도 `sentry-scrub.js`의 `beforeSend`·`beforeBreadcrumb`가 같은 형태의 이메일·토큰을 이벤트 전체에서 가린다. 정상 Sentry 식별자는 최상위 `event_id`·`release`·`dist`, `contexts.trace`의 추적 ID, `debug_meta`의 `debug_id`, `contexts.session.sid`처럼 실제 스키마 경로에 있을 때만 보존하며, `extra.sid`처럼 이름만 같은 임의 데이터는 정리한다. 요청 본문·쿠키·민감 헤더와 주소·화면 이동 기록의 쿼리·해시도 지운다(메일 링크 `?token=`, 결제 결과 `paymentKey`·`orderId`·`amount`). 주소창의 쿼리를 `history.replaceState`로 지우는 방식은 결제 결과 화면 새로고침(멱등 재승인)이 쿼리에 의존해 쓰지 않았다. 백엔드 가짜 전송기 테스트와 프런트 Node 테스트에서 직렬화한 이벤트 전체에 가짜 토큰·이메일·결제키가 없는지 확인한다.
 - 프런트 `src/instrument.js`(`main.jsx`가 가장 먼저 import): 서버 4xx·`NETWORK_ERROR` `ApiError`는 버리고(화면에 이미 안내함, 5xx는 백엔드가 수집), 동적 import 실패·`ResizeObserver`·네트워크 끊김 문구는 `ignoreErrors`, 우리 도메인 스크립트만 `allowUrls`. 서버 오류는 `api-error`+코드+상태로 묶는다(fingerprint). 성능 추적·세션 녹화 없음. React 19 `createRoot`의 `onUncaughtError: Sentry.reactErrorHandler()`와 전체를 감싼 `Sentry.ErrorBoundary`(대체 화면 `components/common/crash-fallback.jsx`).
 - 테스트는 실제 DSN으로 보내지 않는다(`tests/test_monitoring.py`는 가짜 전송기, `test_api_routes.py`는 `SENTRY_DSN=""`).
-- Sentry 화면 설정: 두 프로젝트의 Project Settings → Inbound Filters에서 브라우저 확장·구형 브라우저·크롤러 필터를 켜고(걸러진 건 한도 미차감), 배포 후 Localhost 필터를 켠다. 프런트 번들이 gzip 약 32KB 늘었다.
-- 배포 시 CSP `connect-src`에 Sentry 수집 주소(`https://*.ingest.us.sentry.io`)를 허용한다. 소스맵 업로드(`@sentry/vite-plugin`, `SENTRY_AUTH_TOKEN`)는 아직 하지 않았다.
+- Sentry 화면 설정(2026-10-07 완료): 두 프로젝트 모두 Inbound Filters의 Localhost 필터를 켰고, `aram-market-web`은 브라우저 확장·구형 브라우저(All)·크롤러 필터도 켰다(걸러진 건 한도 미차감). 프런트 번들이 gzip 약 32KB 늘었다.
+- 운영 CSP `connect-src`에 Sentry 수집 주소(`https://*.ingest.sentry.io`, `https://*.ingest.us.sentry.io`)를 허용했다.
+- 소스맵(2026-10-07): `vite.config.js`가 셸 환경변수 `SENTRY_AUTH_TOKEN`이 있을 때만 `@sentry/vite-plugin`(개발 의존성, 정확한 버전 고정)으로 `hidden` 소스맵을 만들어 `my-portfolio-bg`/`aram-market-web`에 올리고 `dist`의 `.map`을 지운다. 토큰이 없으면 소스맵 없이 기존과 같이 빌드한다. 토큰은 Sentry Organization Token이며 `VITE_` 접두사·`.env.local`·Git에 두지 않고 빌드 직전 `$env:SENTRY_AUTH_TOKEN = Read-Host` → `npm run build` → `Remove-Item Env:SENTRY_AUTH_TOKEN`로만 쓴다. 이벤트와 소스맵은 번들에 들어간 debug ID로 연결되고, 플러그인이 현재 git HEAD 해시를 릴리스로 번들에 넣는다(`VITE_SENTRY_RELEASE` 불필요, 미커밋 상태로 빌드하면 릴리스 이름과 실제 코드가 어긋남). 업로드 후 `(Get-ChildItem dist -Recurse -Filter *.map).Count`가 0인지 확인하고 Sentry → Project Settings → Source Maps에서 묶음을 확인한다.
 
 ## 라우팅
 
@@ -520,6 +522,7 @@ $env:PYTHONPATH=(Resolve-Path .\src).Path
 ```powershell
 cd backend
 $env:PYTHONPATH=(Resolve-Path .\src).Path
+$env:PYTHONUTF8="1"   # Windows cp949에서 한글 출력·pip-audit 디코딩 오류 방지
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 .\.venv\Scripts\python.exe -m compileall -q main.py src scripts
 .\.venv\Scripts\python.exe scripts\check_auth_schema.py
@@ -536,7 +539,13 @@ $env:PYTHONPATH=(Resolve-Path .\src).Path
 .\.venv\Scripts\python.exe scripts\check_admin_refresh_tokens.py
 .\.venv\Scripts\python.exe scripts\check_admin_mfa.py
 .\.venv\Scripts\python.exe scripts\check_order_payment_attempted_at.py
+.\.venv\Scripts\python.exe scripts\check_rate_limit_and_cart.py
 .\.venv\Scripts\python.exe scripts\check_smtp.py
+# 정적 분석·의존성(uv의 uvx 사용, vulture 실행 파일은 Windows 앱 제어가 막아 python -m으로 실행)
+uvx ruff check --select F,E9,B,ASYNC --ignore B008 main.py src scripts tests
+uvx --from vulture python -m vulture --min-confidence 80 main.py src
+uvx pip-audit -r requirements.txt
+uv pip check --python .venv
 ```
 
 프런트:
@@ -544,8 +553,12 @@ $env:PYTHONPATH=(Resolve-Path .\src).Path
 ```powershell
 cd frontend
 npm run lint
+npm test
 npm run build
+npm audit --omit=dev
 ```
+
+운영 배포 확인은 `deploy/README.md`의 '배포 후 확인'을 따른다.
 
 기능 변경 시 최소 검증:
 
@@ -554,22 +567,22 @@ npm run build
 - 프런트: 직접 URL 접근, 뒤로가기, 세션 만료, 모바일 880px 이하 페이지 크기
 - DB: 마이그레이션 재실행 가능 여부와 기존 데이터 보존
 
-## 배포 전 변경 필수 항목
+## 운영 설정 기준 (배포 전 점검 항목, 2026-10-07 운영 반영 상태)
 
 - **CORS**: 허용 출처는 `CORS_ORIGINS`(기본 `FRONTEND_URL`)뿐이다(2026-10-02 localhost 고정값 제거). 배포에서는 `FRONTEND_URL`을 실제 도메인으로 두면 된다. 프런트와 `/api`를 같은 도메인에 두면 CORS 자체가 적용되지 않는다.
 - **프록시**: 리버스 프록시 뒤에 배포하면 `TRUSTED_PROXY_IPS`에 프록시 IP·대역을 넣어야 로그인 제한·메일 제한이 실제 접속자 IP 기준으로 동작한다(비우면 모든 사용자가 프록시 IP 하나로 보임). 프록시는 `X-Forwarded-For`를 덧붙이는 방식이어야 하며 배포 환경에서 로그인 제한이 사용자별로 걸리는지 확인한다.
 - `AUTH_COOKIE_SECURE=true`(https), `TRUSTED_PROXY_IPS`(리버스 프록시 IP), `ACCESS_TOKEN_EXPIRE_MINUTES`(권장 15) 확인.
-- 토스페이먼츠 실제 키로 교체. 결제 성공·실패 URL은 `toss-payments.js`가 `window.location.origin`으로 만들므로 따로 바꿀 필요 없다.
+- 토스페이먼츠 실제 키로 교체(실제 서비스 전환 시에만, 포트폴리오 운영은 테스트 키 유지). 결제 성공·실패 URL은 `toss-payments.js`가 `window.location.origin`으로 만들므로 따로 바꿀 필요 없다.
 - **관리자 경로는 번들에 포함된다**: `VITE_` 변수는 빌드 시 JS에 그대로 박히므로 `VITE_ADMIN_BASE_PATH`는 공개 번들을 받은 누구나 찾을 수 있다(2026-10-02 `dist` 확인). 실제 보호는 서버의 관리자 토큰 검증이며, 더 숨기려면 관리자 화면을 별도 빌드·서브도메인으로 분리하거나 IP 허용 목록을 둔다.
 - `AUTH_SECRET_KEY`를 바꾸면 발급된 모든 토큰·메일 링크가 무효가 된다.
 - **API 문서 노출**: `/docs`(Swagger UI)·`/redoc`·`/openapi.json`은 폴더가 아니라 FastAPI가 자동으로 만드는 URL이다. `FRONTEND_URL`이 https면 기본으로 셋 다 꺼진다(`API_DOCS_ENABLED=true`로만 다시 켬). 배포 후 세 주소가 404인지 확인한다.
 - **헬스 체크**: 배포 플랫폼 상태 확인 경로는 `/api/health`다.
 - **백엔드 프로세스 수**: 관리자 로그인 실패 제한기가 서버 메모리 방식이므로 배포 시 백엔드는 인스턴스 1대·uvicorn 워커 1개(`--workers` 미지정)로 둔다. 늘려야 하면 아래 '보류 목록'의 제한기 DB 전환을 먼저 한다.
-- **실행 버전**: Python 3.14(`backend/.python-version`), Node 24(`frontend/.nvmrc`, `package.json` `engines`). 백엔드 패키지는 `requirements.txt`에 로컬에서 테스트한 버전(`==`)으로 고정했고 프런트는 `package-lock.json`이 고정한다. 운영 실행은 `fastapi dev`(자동 재시작 개발 서버) 대신 `uvicorn main:app --host 0.0.0.0 --port $PORT`(작업 디렉터리 `backend`)를 쓴다. 호스팅이 3.14를 지원하지 않으면 지원 버전으로 다시 테스트한 뒤 바꾼다.
+- **실행 버전**: Python 3.14(`backend/.python-version`, 운영 3.14.8), Node 24(`frontend/.nvmrc`, `package.json` `engines`). 백엔드 패키지는 `requirements.txt`에 로컬에서 테스트한 버전(`==`)으로 고정했고 프런트는 `package-lock.json`이 고정한다. 운영 실행은 `fastapi dev` 대신 systemd의 `uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1`(`deploy/systemd/aram-market.service`)이다.
 - **DB 연결 방식**: 현재 Supabase 세션 풀러(포트 5432)를 쓴다. 트랜잭션 풀러(6543)는 요청(트랜잭션)마다 다른 DB 연결을 돌려 쓰므로 asyncpg가 연결에 만들어 둔 prepared statement를 찾지 못한다(2026-10-02 실제 재현: `prepared statement "__asyncpg_stmt_5__" does not exist`). `core/database.py`는 `DATABASE_URL` 포트가 6543이면 자동으로 statement 캐시를 끄고 문장 이름을 매번 새로 만든다(동시 20세션×3회 조회·시간대 `Asia/Seoul` 확인). 연결 수 한도에 걸리거나 서버리스 호스팅을 쓰면 URL의 포트만 6543으로 바꾸면 된다. 6543이면 앱 연결 풀도 `NullPool`로 바꿔 연결을 쥐지 않고(자동 확장 시 인스턴스마다 풀이 쌓이는 것 방지, Supabase 권장), 5432이면 장기 실행 서버 기준 `pool_size=5`·`max_overflow=5`(최대 10개)를 명시한다(2026-10-02 Codex 검수 반영, 두 방식 모두 실제 DB로 확인). `get_db`의 `SET TIME ZONE`은 트랜잭션 단위라 요청 중 커밋 뒤에는 유지되지 않을 수 있으나, 시각 컬럼은 모두 `timestamptz`이고 표시 변환은 Python·프런트가 하므로 영향이 없다.
-- **`.env` 우선순위**: 2026-10-02 `override=False`로 바꿔 플랫폼 환경변수가 `.env`보다 우선한다. 그래도 배포 서버에는 `.env` 파일을 두지 않는 것을 원칙으로 한다.
+- **`.env` 우선순위**: 2026-10-02 `override=False`로 바꿔 플랫폼 환경변수가 `.env`보다 우선한다. 현재 운영은 서버의 `/var/www/aram-market/backend/.env`(권한 600)를 쓴다.
 - **환경변수 템플릿(선택)**: `backend/.env.example`은 `.gitignore`로 제외돼 저장소에 없다. 배포에는 필요 없고, 새 PC에서 클론할 때 변수 이름을 알려 주는 양식이 필요할 때만 실제 값 없이 추적한다(변수 목록은 이 문서 '환경변수' 절이 대신한다).
-- **보안 헤더**: 백엔드·프런트 응답에 `X-Content-Type-Options`·`Strict-Transport-Security`·CSP 같은 헤더가 없다. 리버스 프록시(또는 CDN)에서 추가한다.
+- **보안 헤더**: 앱 자체는 보안 헤더를 붙이지 않고 운영 nginx가 HSTS·`nosniff`·`X-Frame-Options: DENY`·`Referrer-Policy`·`Permissions-Policy`·CSP(강제)를 모든 응답에 붙인다(`deploy/nginx/aram-market.conf`). nginx는 `location` 안에 `add_header`를 하나라도 쓰면 server 블록의 헤더를 상속하지 않으므로, 경로별 헤더가 필요하면 `expires`를 쓰거나 보안 헤더를 함께 다시 선언한다.
 
 ## 실제 상용화 시 DB 분리
 
@@ -604,14 +617,18 @@ npm run build
 
 ## 다음 작업 후보와 미구현 범위
 
+2026-10-07 배포 사이트·전체 코드 검수 결과(모두 반영 완료):
+
+- 고객 푸터와 메일 6종의 하단에 있던 실제 사업자처럼 보이는 가상 정보(재단법인명·고유번호·대표자·전화·이메일·주소)를 지우고 '포트폴리오용 테스트 사이트, 실제 판매·결제·배송 없음' 안내로 바꿨다(`components/products/catalog-footer.jsx`, `domain/users/templates/*.html`).
+- 프런트 패치 업데이트(`npm update`, `package.json` 범위 안에서 잠금 파일만 변경): vite 8.3.3, `@vitejs/plugin-react` 6.1.2, `@sentry/react` 11.5.0, Tiptap 3.31.4, oxlint 1.87.0. 이로써 전체 `npm audit`도 0건(`source-map-js` 1.2.2).
+
 - 결제는 토스페이먼츠 테스트 키로만 연동돼 있다. 환불·재고·웹훅이 없다.
 - 후기 사진 첨부·도움돼요·신고·관리자 후기 삭제 기능이 없다.
 - 선택 개선(필요해지면): 주문 생성 시점의 재고 확인, 주소록 기반 배송지 별 기본 요청사항. 인덱스·제한기 등은 '보류 목록' 참고.
 - 관리자 2단계 인증(TOTP)은 구현됐다(2026-10-02). 관리자 계정을 여러 명이 쓰게 되면 계정 분리(감사 로그의 수행자 기록 복구)를 먼저 도입한다. 기기별 로그인 세션은 이미 독립적이다.
 - 계정 잠금(5회 실패 1시간)은 아이디만 알면 남이 일부러 잠글 수 있다. IP 제한은 이를 완화할 뿐 막지 못한다.
 - 리프레시 쿠키 Path는 `/api/users`다. 배포 시 API 접두사가 바뀌면 함께 바꾼다.
-- 관리자 비공개 경로는 배포 보안 수단이 아니다(2단계 인증으로 보완, 필요하면 WAF 추가). 배포 시 `AUTH_COOKIE_SECURE=true`(https) 확인이 필요하다.
-- SPA 배포 서버는 `/products/{id}`, `/user/*`, 관리자 비공개 경로를 `index.html`로 fallback해야 한다.
+- 관리자 비공개 경로는 배포 보안 수단이 아니다(2단계 인증으로 보완, 필요하면 WAF 추가).
 - 상품 상세는 2026-09-30에 상단·탭·배경을 개편했다. 추가 개편 때 찜 UI(목록 카드 하트 등)를 함께 검토한다. 목록 카드는 이미지 아래 전폭 '담기' 버튼(컬리 방식)이다.
 
 ## 배포 전 점검과 교차 검수 (2026-10-02~03)

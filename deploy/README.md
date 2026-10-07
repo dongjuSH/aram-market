@@ -5,7 +5,7 @@
 
 운영 주소는 `https://aram-market.duckdns.org`이다. 이 문서는 실제 운영 서버에 적용한 구성, 배포 중 확인한 문제와 해결 방법, 이후 재배포 절차를 기록한다. 비밀번호·토큰·키·실제 환경변수 값은 기록하지 않는다.
 
-최초 운영 배포에서 확인한 코드 기준은 `9c7033d`(`fix: include timezone data dependency`)이며, 이후 배포 설정 파일과 이 운영 기록을 저장소에 추가했다.
+최초 운영 배포에서 확인한 코드 기준은 `9c7033d`(`fix: include timezone data dependency`)이며, 이후 배포 설정 파일과 이 운영 기록을 저장소에 추가했다. 2026-10-07에 서버 저장소를 `9ebb755`로 갱신하고(백엔드 실행 코드 변경은 메일 템플릿 6종의 하단 안내뿐) 같은 커밋으로 빌드한 프런트 `dist`(상품 카드 접근성 수정, 푸터 포트폴리오 안내, 패치 업데이트, Sentry 소스맵 업로드)와 Nginx 캐시 스니펫을 반영했다. 이후 프로젝트는 현재 상태로 유지한다.
 
 ## 현재 운영 구성
 
@@ -30,6 +30,7 @@ ARM `VM.Standard.A1.Flex`는 오사카 AD-1의 호스트 용량 부족으로 생
 - `deploy/systemd/aram-market.service`: 백엔드 systemd 서비스
 - `deploy/nginx/aram-market.conf`: Certbot 적용 전 기준 Nginx 설정
 - `deploy/nginx/aram-market-blocked-routes.conf`: 운영 API 문서 경로 404 처리
+- `deploy/nginx/aram-market-cache.conf`: `index.html` no-cache, 해시 JS·CSS 장기 캐시, 없는 `/assets/` 파일 404
 
 서버에 적용할 때는 다음 위치를 사용한다.
 
@@ -72,7 +73,7 @@ $HOME/.local/bin/uv pip check --python .venv/bin/python
 
 필수 운영 방향은 다음과 같다.
 
-- `BACKEND_PUBLIC_URL`과 `FRONTEND_URL`: 운영 HTTPS 주소
+- `FRONTEND_URL`: 운영 HTTPS 주소(메일 링크·CORS·쿠키 Secure·API 문서·MFA 필수·Sentry 환경 기본값이 이 값으로 정해진다)
 - `TRUSTED_PROXY_IPS`: 같은 서버의 Nginx만 신뢰하도록 `127.0.0.1`
 - `AUTH_SECRET_KEY`: 로컬과 다른 새 64자 난수 값
 - HTTPS에서 Secure 인증 쿠키 사용
@@ -118,6 +119,8 @@ sudo certbot renew --dry-run
 - `Referrer-Policy: strict-origin-when-cross-origin`
 - `Permissions-Policy: camera=(), microphone=(), geolocation=()`
 - Content Security Policy(CSP) 강제 적용
+
+정적 파일 캐시(2026-10-07, `aram-market-cache.conf`): `/`·화면 경로·`/index.html`은 `Cache-Control: no-cache`, 파일 이름에 8자 해시가 붙은 `/assets/*.js|css`는 `max-age=315360000`, `/assets/`에 없는 파일은 `index.html` 대신 404를 돌려준다. 이전에는 `index.html`에 캐시 헤더가 없어 재배포 뒤에도 브라우저가 이전 화면을 계속 쓰고, 이미 지운 이전 번들 요청에 HTML이 돌아가 빈 화면이 될 수 있었다. 경로별 설정은 `add_header` 대신 `expires`를 써서 server 블록의 보안 헤더 상속을 유지한다(`location`에 `add_header`를 하나라도 쓰면 상속되지 않음).
 
 CSP는 먼저 Report-Only로 점검한 뒤 강제 적용했다. 토스 결제, Supabase 이미지, Sentry, 카카오 우편번호 검색에 필요한 출처만 허용한다. 주소 검색은 `postcode.map.daum.net`에서 실제로 `postcode.map.kakao.com`으로 전환되어 두 frame 출처를 모두 허용해야 정상 동작한다. 현재 설정은 저장소의 `deploy/nginx/aram-market.conf`에 기록되어 있다.
 
@@ -167,6 +170,8 @@ sudo systemctl restart aram-market
 sudo systemctl status aram-market --no-pager
 ```
 
+1GB 인스턴스에서는 재시작 직후 몇 초 동안 앱이 아직 떠 있지 않아 `/api/health`가 502일 수 있다(2026-10-07 `restart` 3초 뒤 502, 곧 200). 10초쯤 뒤 다시 확인하고, 계속 502이면 위 '재부팅 직후의 502' 확인 순서를 따른다.
+
 DB 마이그레이션이 포함된 배포는 해당 마이그레이션의 사전 확인·적용·검증 스크립트를 문서화된 순서대로 실행한 후 서비스를 확인한다.
 
 ### 3. 프런트엔드 갱신
@@ -180,7 +185,37 @@ npm test
 npm run build
 ```
 
-그 다음 `frontend/dist`의 내용만 서버의 `/var/www/aram-market/frontend/dist`에 업로드한다. 업로드 후 Nginx가 읽을 수 있도록 디렉터리는 755, 파일은 644인지 확인한다. 서버에 `.env.local`, `node_modules` 또는 로컬 소스맵 비밀값을 업로드하지 않는다.
+Sentry 소스맵을 함께 올리려면 `npm run build` 직전에 Sentry Organization Token을 셸 환경변수로만 넣고, 빌드 뒤 지운다. 토큰은 `VITE_` 접두사·`.env.local`·Git에 두지 않는다. 토큰 없이 빌드하면 소스맵 없이 정상 빌드된다.
+
+```powershell
+$env:SENTRY_AUTH_TOKEN = Read-Host "Sentry token"
+npm run build
+(Get-ChildItem dist -Recurse -Filter *.map).Count   # 0이어야 업로드 가능
+Remove-Item Env:SENTRY_AUTH_TOKEN
+```
+
+빌드 로그에 `Successfully uploaded source maps to Sentry`가 나오고 Sentry `aram-market-web` → Project Settings → Source Maps에 묶음이 보이면 된다. 릴리스 이름은 빌드 시점의 git HEAD 해시이므로 커밋한 뒤 빌드한다.
+
+그 다음 `dist`를 서버의 `/var/www/aram-market/frontend/dist`와 교체한다. 기존 폴더는 `dist.old`로 남겨 바로 되돌릴 수 있게 한다. 서버에 `.env.local`, `node_modules`, `.map` 파일을 올리지 않는다.
+
+```bash
+# 서버: 이전 임시 폴더 정리
+rm -rf ~/dist-new
+```
+
+```powershell
+# 개인 PC(frontend 폴더)
+scp -i ~/.ssh/oracle_aram_market -r dist ubuntu@aram-market.duckdns.org:~/dist-new
+```
+
+```bash
+# 서버: 교체와 권한
+cd /var/www/aram-market/frontend && rm -rf dist.old && mv dist dist.old && mv ~/dist-new dist
+find dist -type d -exec chmod 755 {} + && find dist -type f -exec chmod 644 {} + && ls dist dist/assets
+# 되돌리기: mv dist dist.bad && mv dist.old dist
+```
+
+Nginx는 파일을 바로 읽으므로 재시작이 필요 없다. 확인이 끝나면 `dist.old`를 지운다.
 
 ### 4. 설정 변경 시 반영
 
@@ -218,6 +253,8 @@ sudo certbot renew --dry-run
 - 22·80·443 → 공개 수신, 8000 → `127.0.0.1`에서만 수신
 - HTTP → HTTPS 301 리디렉션
 - 인증 쿠키 → `Secure`, `HttpOnly`, 의도한 `SameSite`
+- `/`·화면 경로 → `Cache-Control: no-cache`, 해시 번들 → `max-age=315360000`, `/assets/없는파일.js` → 404, 모든 응답에 HSTS·CSP 유지
+- 브라우저 콘솔 오류 없음(재배포 직후 이전 캐시가 남은 브라우저는 한 번만 강력 새로고침)
 
 ## 완료한 운영 검증
 
@@ -230,10 +267,13 @@ sudo certbot renew --dry-run
 - TLS 자동 갱신 모의 실행
 - 재부팅 후 스왑·iptables·systemd 서비스 자동 복구
 - SMTP 연결·인증
+- (2026-10-07) 로그인 실패 제한이 실제 접속자 IP 기준: PC에서 없는 아이디로 21회 실패 후 429, 같은 와이파이의 휴대폰도 429, 휴대폰 모바일 데이터는 일반 실패 안내. 서버 `.env`의 `TRUSTED_PROXY_IPS=127.0.0.1`과 Uvicorn `--proxy-headers --forwarded-allow-ips 127.0.0.1` 확인
+- (2026-10-07) Sentry 두 프로젝트 Localhost 필터, 프런트 소스맵 업로드, 상품 카드 이미지 클릭·담기 버튼과 콘솔 경고 없음, 캐시 헤더
 
 ## 남은 운영·코드 개선 항목
 
-- 상품 상세 모달을 닫을 때 포커스가 남은 요소에 `aria-hidden`이 적용되는 브라우저 접근성 경고가 있다. 기능 장애는 아니지만 포커스를 먼저 안전한 요소로 이동하거나 `inert`를 사용하도록 프런트 코드를 개선해야 한다.
-- Sentry 프로젝트의 Localhost Inbound Filter 활성화 여부는 콘솔에서 최종 확인한다. 소스맵 업로드는 선택 사항이다.
+- (해결 2026-10-07) `aria-hidden` 접근성 경고: 원인은 모달이 아니라 상품 카드 이미지가 `aria-hidden`인 포커스 가능 버튼이었던 것. 포커스를 받지 않는 `div`로 바꿔 배포했다.
+- (해결 2026-10-07) Sentry Localhost 필터 활성화, 프런트 소스맵 업로드.
+- 서버 `nginx.service` 유닛 파일이 디스크에서 바뀌었다는 `daemon-reload` 안내가 나온 적이 있다. 서비스 동작에는 영향이 없으며 `sudo systemctl daemon-reload`로 정리한다.
 - Gmail에서 비밀번호 재설정 메일이 스팸으로 분류된 적이 있다. 포트폴리오 운영에는 지장이 없지만 실제 서비스 전환 시 발신 도메인, SPF/DKIM/DMARC와 메일 평판을 별도로 구성한다.
 - Toss 테스트 키는 포트폴리오 정책에 따라 의도적으로 유지한다. 실제 결제를 받기 전에는 라이브 키·상점 계약·환불 운영 절차를 별도 적용한다.
