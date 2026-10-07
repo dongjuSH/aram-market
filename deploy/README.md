@@ -37,6 +37,7 @@ ARM `VM.Standard.A1.Flex`는 오사카 AD-1의 호스트 용량 부족으로 생
 sudo cp deploy/systemd/aram-market.service /etc/systemd/system/aram-market.service
 sudo cp deploy/nginx/aram-market.conf /etc/nginx/sites-available/aram-market
 sudo cp deploy/nginx/aram-market-blocked-routes.conf /etc/nginx/snippets/aram-market-blocked-routes.conf
+sudo cp deploy/nginx/aram-market-cache.conf /etc/nginx/snippets/aram-market-cache.conf
 sudo ln -sfn /etc/nginx/sites-available/aram-market /etc/nginx/sites-enabled/aram-market
 sudo systemctl daemon-reload
 sudo systemctl enable --now aram-market nginx
@@ -187,6 +188,7 @@ npm run build
 sudo cp deploy/systemd/aram-market.service /etc/systemd/system/aram-market.service
 sudo cp deploy/nginx/aram-market.conf /etc/nginx/sites-available/aram-market
 sudo cp deploy/nginx/aram-market-blocked-routes.conf /etc/nginx/snippets/aram-market-blocked-routes.conf
+sudo cp deploy/nginx/aram-market-cache.conf /etc/nginx/snippets/aram-market-cache.conf
 sudo systemctl daemon-reload
 sudo nginx -t
 sudo systemctl restart aram-market
