@@ -31,43 +31,44 @@ Claude가 지킬 사용자 선호(이전 기억 파일에서 옮김):
 - 관리자 화면은 노트북 이상 데스크톱 기준이며 모바일 대응은 하지 않는다.
 - 쓰이지 않는 코드·CSS는 작업할 때마다 제거한다(재사용 가능성이 있으면 먼저 확인).
 - 결제·인증·동시성 변경은 아래 '작업 원칙'의 검증 원칙 1~7을 따른다.
-- **실제 배포 때 반드시 다시 안내할 것**: 운영(https)에서는 `ADMIN_MFA_REQUIRED`가 자동으로 켜지고 운영용 새 `AUTH_SECRET_KEY`로 기존 MFA 등록이 무효가 되므로, 배포 직후 관리자 로그인 전에 서버에서 `scripts/setup_admin_mfa.py`로 재등록해야 한다(안 하면 503 `ADMIN_MFA_NOT_CONFIGURED`로 관리자 로그인 불가).
+- **운영 키 변경 시 반드시 다시 안내할 것**: 운영용 `AUTH_SECRET_KEY`를 바꾸면 기존 MFA 등록이 무효가 되므로 서버에서 `scripts/setup_admin_mfa.py`로 재등록해야 한다(안 하면 503 `ADMIN_MFA_NOT_CONFIGURED`로 관리자 로그인 불가). 최초 운영 배포에서는 재등록을 완료했다.
 
-## 배포 구성 (2026-10-05 적용 완료)
+## 배포 구성 (2026-10-07 운영 현황 반영)
 
-운영 주소는 `https://aram-market.duckdns.org`이다. Oracle Cloud 오사카의 Ubuntu 24.04 AMD Micro 인스턴스에 배포했으며, 확정된 Nginx·systemd 설정과 재배포 절차는 `deploy/`에 보관한다.
+운영 주소는 `https://aram-market.duckdns.org`이다. Oracle Cloud 오사카의 Ubuntu 24.04.5 AMD Micro 인스턴스에 배포했으며, 확정된 Nginx·systemd 설정, 배포 중 해결한 문제와 재배포 절차는 `deploy/README.md`에 보관한다.
 
 무료 조건(포트폴리오)에서 고른 구성. 근거로 확인한 공식 자료: Render 무료 웹 서비스는 2025-09부터 SMTP 25·465·587 차단(유료는 465·587 허용), Railway는 무료·Trial·Hobby에서 SMTP 차단(Pro부터 허용), Oracle Always Free는 포트 25만 기본 차단이며 Email Delivery 월 3,000통 무료.
 
 | 항목 | 결정 |
 |---|---|
-| 서버 | Oracle Cloud Always Free, **홈 리전 오사카**(무료 VM은 홈 리전에서만 생성 가능). 사용자의 다른 프로젝트가 같은 계정에서 AMD 무료 VM 1대를 쓰고 있으므로 **새 VM을 따로** 만든다(무료 한도: AMD `VM.Standard.E2.1.Micro` 최대 2대·각 1GB 메모리, ARM A1 총 2코어·12GB, 디스크 총 200GB·VM당 최소 47GB). ARM이 용량 부족이면 AMD Micro + 스왑 2GB |
-| OS·런타임 | Ubuntu 24.04, 시간대 Asia/Seoul, Python 3.14(uv로 설치), 서버에는 Node를 두지 않음 |
+| 서버 | Oracle Cloud Always Free, **홈 리전 오사카**, `VM.Standard.E2.1.Micro`(1 OCPU·1GB, x86_64) + 스왑 2GB. `VM.Standard.A1.Flex`는 AD-1 호스트 용량 부족으로 생성하지 못해 AMD Micro로 전환함 |
+| OS·런타임 | Ubuntu 24.04.5, 시간대 Asia/Seoul, Python 3.14.8(uv로 설치), 서버에는 Node를 두지 않음 |
 | 프런트 | 개인 PC에서 `npm run build`(운영 `VITE_*` 값으로) → `frontend/dist`만 서버로 업로드(1GB VM에서 빌드하면 메모리 부족 위험) |
 | 백엔드 | systemd 서비스로 `uvicorn main:app --host 127.0.0.1 --port 8000`(작업 디렉터리 `backend`, 워커 1개, `Restart=always`). 8000은 외부에 열지 않음 |
 | 웹 서버 | nginx 한 대가 같은 도메인에서 정적 파일(`dist`)과 `/api` 프록시를 함께 처리하고, 그 밖의 경로는 `index.html`로 돌려줌(SPA fallback). 외부 공개 포트는 80·443만(Oracle 보안 목록 + 서버 방화벽) |
 | 도메인·HTTPS | DuckDNS 무료 서브도메인(공용 접미사 목록에 있어 Let's Encrypt 발급 한도 문제 없음) + certbot(Let's Encrypt, 자동 갱신) |
-| 메일 | 기존 SMTP(587) 유지. 서버에서 587 연결이 막히면 Oracle Email Delivery로 전환 |
+| 메일 | 기존 SMTP(587) 연결·인증 정상. 비밀번호 재설정 메일과 운영 도메인 링크 수신 확인(일부 Gmail 스팸함 분류) |
 | DB·이미지 | 기존 Supabase 프로젝트 그대로(개발·운영 겸용, '실제 상용화 시 DB 분리' 절 참고) |
-| 오류 수집 | Sentry 기존 프로젝트, 배포 후 두 프로젝트의 Inbound Filters에서 Localhost 필터 켜기 |
+| 오류 수집 | Sentry 기존 프로젝트, 환경 `production`. Inbound Filters의 Localhost 필터 활성화 여부는 콘솔에서 최종 확인 필요 |
 
-재배포 순서:
+운영 배포 완료 상태:
 
-1. (사용자) 개인 PC에서 SSH 키 생성 → Oracle 콘솔(오사카)에서 VM 생성(Ubuntu 24.04, 공인 IP, 공개키 등록). 생성 화면을 Claude에게 보여 주면 값을 안내한다.
-2. (사용자) DuckDNS 서브도메인 생성 → VM 공인 IP 연결.
-3. (함께) 서버 기본 설정: 패키지 업데이트, 스왑, 시간대, 방화벽(80·443), Python 3.14(uv)·백엔드 코드 배치·가상환경, systemd 서비스, nginx, certbot.
-4. (함께) 서버에서 SMTP 587 연결 테스트 → SMTP 유지 또는 Email Delivery 전환.
-5. (사용자) 서버 `backend/.env`에 운영 값 입력: 새 `AUTH_SECRET_KEY`(32자 이상), `FRONTEND_URL=https://<도메인>`, `TRUSTED_PROXY_IPS=127.0.0.1`(같은 서버 nginx), 나머지는 로컬과 같음. `.env` 권한 600. 운영에서는 `API_DOCS_ENABLED`·`AUTH_COOKIE_SECURE`·`ADMIN_MFA_REQUIRED`·`SENTRY_ENVIRONMENT`가 https 기준으로 자동 설정된다.
-6. (함께) nginx에 보안 헤더(HSTS, `X-Content-Type-Options: nosniff`, `frame-ancestors`, `Referrer-Policy`)와 CSP(토스 `js.tosspayments.com`, 카카오 우편번호 `t1.kakaocdn.net`, Supabase Storage, Sentry `*.ingest.us.sentry.io` 허용, 처음엔 Report-Only로 확인 후 적용).
-7. (사용자) **관리자 2단계 인증 재등록**: 서버에서 `PYTHONPATH=src .venv/bin/python scripts/setup_admin_mfa.py`(새 `AUTH_SECRET_KEY` 기준). 이전 복구 코드는 무효가 된다.
-8. (함께) 배포 후 확인: `/docs`·`/redoc`·`/openapi.json` 404, `/api/health` 200, 인증 쿠키 `Secure`, 고객 로그인·관리자 2단계 로그인·토스 테스트 결제·메일 링크가 운영 도메인인지, 직접 주소 접속·새로고침(SPA fallback), 로그인 실패 제한이 실제 접속자 IP 기준인지, Sentry `production` 이벤트 수신.
-9. (사용자) Sentry Localhost 필터 켜기, (선택) 소스맵 업로드(`@sentry/vite-plugin`, 조직 slug `my-portfolio-bg`, `SENTRY_AUTH_TOKEN`).
+1. OCI 보안 목록과 서버 iptables에 22·80·443 허용, 8000은 `127.0.0.1`에서만 수신. Oracle Ubuntu에서는 UFW를 사용하지 않는다.
+2. Python 3.14.8 가상환경과 `tzdata==2026.5`, systemd 백엔드, Nginx 프런트·API 프록시, DuckDNS와 Let's Encrypt 인증서를 적용했다.
+3. CSP는 Report-Only 점검 후 강제 적용했다. 토스·Supabase·Sentry와 카카오 우편번호의 `postcode.map.daum.net`·`postcode.map.kakao.com`을 허용한다.
+4. 새 운영 `AUTH_SECRET_KEY` 적용 후 관리자 MFA를 재등록했고 복구 코드 10개를 확인했다.
+5. 관리자 MFA 로그인, 고객 로그인·새로고침·로그아웃과 쿠키, SMTP·비밀번호 재설정 메일, 토스 테스트 결제, 주소 검색, API 문서 404, 인증서 갱신 모의 실행을 확인했다.
+6. 재부팅 후 스왑·iptables·systemd 자동 복구를 확인했다. 재부팅 직후 백엔드 초기화 동안 외부 헬스 체크가 일시적으로 502였으나 곧 내부·외부 모두 200으로 정상화됐다.
+
+재배포는 서버에서 `git pull --ff-only` → 백엔드 고정 의존성 동기화 → systemd 재시작 순서로 진행한다. 프런트는 개인 PC의 Node 24로 빌드한 `dist`만 업로드한다. 자세한 명령과 배포 후 검증 기준은 `deploy/README.md`를 따른다.
+
+남은 비차단 작업은 상품 상세 모달의 `aria-hidden`/포커스 접근성 경고 수정과 Sentry Localhost 필터 최종 확인이다. Toss 테스트 키는 포트폴리오 정책에 따라 의도적으로 유지한다.
 
 알려진 위험: Oracle 문서상 7일간 CPU(95백분위)·네트워크·메모리(A1만) 사용률이 모두 20% 미만이면 Always Free VM이 회수될 수 있다(유료 계정 예외 언급 없음). 서버 설정을 이 문서와 Git으로 재현 가능하게 유지하고, 데이터는 Supabase에 있으므로 VM이 사라져도 다시 만들면 된다. 배포 중 확정되는 nginx·systemd 설정은 저장소에 함께 기록한다(실제 도메인 외 비밀값 제외).
 
 ## 현재 기준 상태
 
-2026-10-03 기준 구현 범위:
+2026-10-07 기준 구현 범위:
 
 - 고객용 아람 마켓 상품 목록과 상품 상세 페이지
 - 고객 회원가입(비밀번호 확인, 이메일 소유 인증, 약관 버전·동의 이력), 로그인(이전 화면 복귀), 아이디 찾기, 비밀번호 재설정, 마이페이지
@@ -89,7 +90,7 @@ Claude가 지킬 사용자 선호(이전 기억 파일에서 옮김):
 
 실제 Supabase 상태:
 
-- `admin_accounts`: 활성 `admin` 계정 1건, 2단계 인증 등록 완료(로컬 `AUTH_SECRET_KEY` 기준이라 운영 키로 바꾸면 배포 후 재등록, 2026-10-02 복구 코드 1개 사용 테스트로 9개 남음)
+- `admin_accounts`: 활성 `admin` 계정 1건. 2026-10-05 운영 `AUTH_SECRET_KEY` 기준으로 2단계 인증을 재등록했고 복구 코드 10개를 확인함
 - `users`: 테스트 회원 5건(`testuser01~05`), `marketing_consent`·`email_verified_at`·`email_verification_sent_at` 컬럼 적용 완료(기존 회원은 인증 완료 처리). 예전 주소 컬럼(`postcode`·`address`·`address_detail`)과 이름·휴대폰(`name`·`phone`, 028)은 주소록으로 대체되어 제거됨
 - `user_policy_consents`: 약관 종류·버전·동의 여부·시각 이력(기존 회원은 v1.0 이력 백필)
 - `products`: 총 30건(활성 29건, 삭제 1건)이며 소프트 삭제 상품도 보존
@@ -160,7 +161,7 @@ git ls-files | rg '(^|/)(\.env($|\.)|node_modules|dist|\.venv|__pycache__|.*\.py
 - 이미지: Supabase Storage 공개 `product-images` 버킷
 - 인증: PBKDF2-SHA256 비밀번호 해시, 표준 JWT(HS256, PyJWT: `iss`·`aud`=토큰 용도·`sub`·`iat`·`exp`·`jti`, 알고리즘 서버 고정) 접근 토큰을 HttpOnly 쿠키(`user_access_token`, `admin_access_token`, Path=/api)로 전달. 리프레시 토큰 쿠키는 만료 시각이 없는 세션 쿠키라 브라우저를 닫으면 로그인이 풀린다(서버 쪽 최대 유지기간은 DB 만료로 유지). 리프레시 토큰은 무작위 불투명 값이며 고객은 `user_refresh_token`(Path=/api/users), 관리자는 `admin_refresh_token`(Path=/api/admins) 쿠키로만 전달하고 DB에는 SHA-256 해시만 저장
 - 메일: SMTP, HTML·텍스트 멀티파트
-- 메일 종류: 아이디 안내, 비밀번호 재설정, 계정 잠금 해제, 가입 이메일 인증, 이메일 변경 확인, 계정 보안 알림(`security_notice.html`: 비밀번호 변경·재설정, 이메일 변경(바뀌기 전 주소로, 새 주소는 일부 가림), 탈퇴 신청 시 발송. 발송 실패는 요청 결과에 영향 없음). SMTP 연결·인증(`scripts/check_smtp.py`)과 잠금 해제·가입 인증 메일의 실제 발송·링크 동작은 사용자가 기능 구현 시 직접 테스트해 정상 확인함
+- 메일 종류: 아이디 안내, 비밀번호 재설정, 계정 잠금 해제, 가입 이메일 인증, 이메일 변경 확인, 계정 보안 알림(`security_notice.html`: 비밀번호 변경·재설정, 이메일 변경(바뀌기 전 주소로, 새 주소는 일부 가림), 탈퇴 신청 시 발송. 발송 실패는 요청 결과에 영향 없음). SMTP 연결·인증(`scripts/check_smtp.py`)과 실제 발송·링크 동작을 로컬과 운영 서버에서 확인함. 운영 비밀번호 재설정 메일은 Gmail 스팸함에 분류된 사례가 있으나 링크 도메인은 정상임
 - 시간대: DB 요청과 프런트 표시 모두 `Asia/Seoul`
 - 오류 응답: 모든 오류는 RFC 9457 Problem Details(`application/problem+json`)로 통일한다(`core/problems.py`). 필드: `type`(`/problems/{code-kebab}`), `title`, `status`, `detail`(화면에 그대로 보여줄 한국어 안내), `code`(프런트 분기용 안정 코드), `instance`, 추가 정보(`retry_after`, `recovery_token`, `email`, 입력 오류의 `errors[{field,message}]`)는 최상위 확장 필드. 입력 검증 오류는 422 `VALIDATION_ERROR`이며 메시지는 한국어로 변환한다. 프런트는 `api/http.js`의 `normalizeError`가 `detail`→`message`로 읽는다. 서버에서 새 오류를 만들 때는 `api_error(status, code, message, **extra)`만 사용한다
 - 요청 제한: DB(`rate_limit_events`, IP·이메일은 HMAC 해시) 슬라이딩 윈도우. Redis 등 별도 인프라는 쓰지 않는다
