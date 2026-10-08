@@ -16,6 +16,8 @@ export function PaymentSuccessPage({ onNavigate }) {
   const isValid = Boolean(paymentKey && orderId && Number.isInteger(amount) && amount > 0)
   const [state, setState] = useState(isValid ? { status: 'loading' } : { status: 'failed', message: '결제 정보가 올바르지 않습니다.' })
   const requestedRef = useRef(false) // 개발 모드 이중 실행에도 승인 요청은 한 번만
+  // 결제 후 취소·환불된 주문의 결과 화면을 새로고침한 경우(서버는 다시 승인하지 않고 현재 주문을 돌려줌)
+  const isCanceled = state.status === 'success' && ['refunding', 'refunded'].includes(state.order.status)
 
   useEffect(() => {
     if (!isValid || requestedRef.current) return
@@ -39,20 +41,21 @@ export function PaymentSuccessPage({ onNavigate }) {
           <h1 id="payment-title">
             {state.status === 'loading' && '결제 확인 중'}
             {state.status === 'pending' && '결제 결과 확인 중'}
-            {state.status === 'success' && '결제가 완료되었습니다'}
+            {state.status === 'success' && (isCanceled ? '취소된 주문입니다' : '결제가 완료되었습니다')}
             {state.status === 'failed' && '결제에 실패했습니다'}
           </h1>
           <p className="auth-description" role="status">
             {state.status === 'loading' && '결제 결과를 확인하고 있습니다. 창을 닫지 말아 주세요.'}
             {state.status === 'pending' && state.message}
             {state.status === 'failed' && state.message}
+            {isCanceled && (state.order.status === 'refunded' ? '이 주문은 취소되어 결제 금액이 환불되었습니다.' : '이 주문의 환불 결과를 확인하고 있습니다.')}
           </p>
         </header>
         {state.status === 'success' && (
           <dl className="payment-summary">
             <div><dt>주문번호</dt><dd>{state.order.order_id}</dd></div>
             <div><dt>주문 상품</dt><dd>{state.order.order_name}</dd></div>
-            <div><dt>결제 금액</dt><dd>{state.order.total_amount.toLocaleString('ko-KR')}원</dd></div>
+            <div><dt>{state.order.status === 'refunded' ? '환불 금액' : '결제 금액'}</dt><dd>{state.order.total_amount.toLocaleString('ko-KR')}원</dd></div>
             {state.addressSaved !== null && state.addressSaved !== undefined && (
               <div><dt>주소록</dt><dd>{state.addressSaved ? '배송지를 주소록에 저장했어요' : '주소록에 저장하지 못했어요. 마이 페이지에서 추가할 수 있어요'}</dd></div>
             )}

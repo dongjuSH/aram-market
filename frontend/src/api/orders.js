@@ -36,3 +36,13 @@ export function getOrders({ months, from, to, page = 1, pageSize = 5 } = {}) {
   }
   return request(`/api/orders?${params}`, { method: 'GET' })
 }
+
+// 결제완료 주문 즉시 취소·환불(사유 코드와 '기타' 입력 내용)
+export function refundOrder(orderId, { reasonCode, reasonDetail = '' }) {
+  return request(`/api/orders/${encodeURIComponent(orderId)}/refund`, { body: { reason_code: reasonCode, reason_detail: reasonDetail } })
+}
+
+// 상품준비중 주문 취소 요청(판매자 승인 후 환불, 주문당 1회)
+export function requestOrderCancel(orderId, { reasonCode, reasonDetail = '' }) {
+  return request(`/api/orders/${encodeURIComponent(orderId)}/cancel-request`, { body: { reason_code: reasonCode, reason_detail: reasonDetail } })
+}

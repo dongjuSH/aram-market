@@ -4474,6 +4474,202 @@ button.admin-inquiries__row:hover {
   background: #eaf8f2;
 }
 
+/* 주문 취소·환불(고객 주문 카드·관리자 주문 관리 공용) */
+.cancel-badge {
+  display: inline-block;
+  margin-left: 8px;
+  border-radius: 4px;
+  padding: 3px 8px;
+  color: #8a5a00;
+  background: #fff3d6;
+  font-size: 12px;
+  font-weight: 800;
+  vertical-align: middle;
+}
+
+.cancel-badge--refunded {
+  color: #55605b;
+  background: #e9eceb;
+}
+
+.cancel-badge--rejected {
+  color: #a33a33;
+  background: #fdeceb;
+}
+
+.order-cancel-note {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  color: #6b4e12;
+  background: #fff8e6;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.order-cancel-note strong {
+  margin-right: 6px;
+}
+
+.order-cancel-note--refunded {
+  color: #55605b;
+  background: #f1f3f2;
+}
+
+.order-cancel-note--rejected {
+  color: #8f3530;
+  background: #fdf1f0;
+}
+
+.my-orders__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.my-orders__actions button {
+  min-height: 40px;
+  border: 1px solid #e6c6c3;
+  border-radius: 8px;
+  padding: 0 16px;
+  color: #a33a33;
+  background: #fff;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.my-orders__actions button:hover {
+  border-color: #ba4b43;
+  background: #fff7f6;
+}
+
+.reason-modal {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.reason-modal__options {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.reason-modal__options legend {
+  margin-bottom: 4px;
+  color: #555a57;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.reason-modal__options label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.reason-modal__options label:has(input:checked) {
+  border-color: var(--brand);
+  background: #f2faf6;
+}
+
+.reason-modal__options input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--brand);
+}
+
+.reason-modal__text {
+  display: grid;
+  gap: 7px;
+  color: #555a57;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.reason-modal__text textarea {
+  width: 100%;
+  resize: vertical;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  color: #202321;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.reason-modal__text textarea:focus {
+  border-color: var(--brand);
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(0, 127, 86, 0.12);
+}
+
+.reason-modal__text small {
+  justify-self: end;
+  color: #99a19d;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.admin-orders__cancel {
+  margin: 8px 0 0;
+  padding: 10px 14px 10px 30px;
+  border-radius: 8px;
+  color: #6b4e12;
+  background: #fff8e6;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.admin-orders__badges,
+.admin-orders__buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-orders__badges .cancel-badge {
+  margin-left: 0;
+}
+
+.admin-orders__actions button.is-secondary {
+  color: var(--brand);
+  background: #fff;
+}
+
+.admin-orders__actions button.is-secondary:hover:not(:disabled) {
+  background: #f2faf6;
+}
+
+.admin-orders__actions button.is-danger {
+  border-color: #b83a32;
+  background: #b83a32;
+}
+
+.admin-orders__actions button.is-danger:hover:not(:disabled) {
+  background: #9d2e28;
+}
+
+.admin-orders__actions button[title]:disabled {
+  cursor: not-allowed;
+}
+
+.admin-orders__hint {
+  margin: 8px 0 0;
+  color: #8a5a00;
+  font-size: 13px;
+  text-align: right;
+}
+
 /* 상품 상세(흰 배경 단일 톤: 다른 고객 화면과 통일) */
 .catalog-detail-page {
   background: #fff;

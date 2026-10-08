@@ -284,7 +284,7 @@ function ProductDetailPage({ onNavigate }) {
               <tr><th scope="row">판매가</th><td>{product.price.toLocaleString('ko-KR')}원</td></tr>
               <tr><th scope="row">판매자</th><td>아람 마켓</td></tr>
               <tr><th scope="row">배송 안내</th><td><ul className="detail-policy">{DELIVERY_NOTICE.map((line) => <li key={line}>{line}</li>)}</ul></td></tr>
-              <tr><th scope="row">교환·반품·환불 안내</th><td><ul className="detail-policy">{REFUND_NOTICE.map((line) => <li key={line}>{line}</li>)}</ul></td></tr>
+              <tr><th scope="row">취소·환불 안내</th><td><ul className="detail-policy">{REFUND_NOTICE.map((line) => <li key={line}>{line}</li>)}</ul></td></tr>
               <tr><th scope="row">유의사항</th><td>{TEST_SITE_NOTICE}</td></tr>
             </tbody>
           </table>

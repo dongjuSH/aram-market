@@ -21,6 +21,7 @@ function UserMyPage({ onNavigate }) {
   const [orders, setOrders] = useState([])
   const [orderTotal, setOrderTotal] = useState(0)
   const [isOrdersLoading, setIsOrdersLoading] = useState(true)
+  const [ordersVersion, setOrdersVersion] = useState(0) // 주문 취소·취소 요청 후 최근 주문을 다시 불러오기 위한 값
 
   useEffect(() => {
     let isMounted = true
@@ -44,7 +45,7 @@ function UserMyPage({ onNavigate }) {
     }
   }, [onNavigate])
 
-  // 최근 결제 완료 주문 조회(실패해도 마이 페이지의 다른 영역은 그대로 사용)
+  // 최근 결제 완료 주문 조회(실패해도 마이 페이지의 다른 영역은 그대로 사용, 취소 후 다시 조회)
   useEffect(() => {
     let isMounted = true
     getOrders({ pageSize: RECENT_ORDER_COUNT })
@@ -60,7 +61,7 @@ function UserMyPage({ onNavigate }) {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [ordersVersion])
 
   const finishPasswordChange = (message) => {
     clearStoredUser() // 서버가 비밀번호 변경·탈퇴 응답에서 인증 쿠키를 이미 삭제함
@@ -88,7 +89,13 @@ function UserMyPage({ onNavigate }) {
             </div>
           </section>
 
-          <OrderHistory orders={orders} total={orderTotal} isLoading={isOrdersLoading} onNavigate={onNavigate} />
+          <OrderHistory
+            orders={orders}
+            total={orderTotal}
+            isLoading={isOrdersLoading}
+            onNavigate={onNavigate}
+            onChanged={() => setOrdersVersion((version) => version + 1)}
+          />
           <ProfileCard user={user} onUserChange={setUser} onNotice={setNotice} />
           <AddressBook />
 

@@ -1,4 +1,4 @@
-// 결제 완료 주문 전체를 조회 기간(3·6·12개월 또는 최근 5년 안의 직접 지정 날짜)과 페이지 단위로 보여주는 고객 주문 목록 페이지
+// 결제 완료·환불 주문 전체를 조회 기간(3·6·12개월 또는 최근 5년 안의 직접 지정 날짜)과 페이지 단위로 보여주는 고객 주문 목록 페이지
 
 import { useEffect, useState } from 'react'
 import { getOrders } from '../../api/orders.js'
@@ -61,6 +61,7 @@ function UserOrdersPage({ onNavigate }) {
   const [data, setData] = useState({ orders: [], total: 0 })
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
+  const [ordersVersion, setOrdersVersion] = useState(0) // 주문 취소·취소 요청 후 현재 페이지를 다시 불러오기 위한 값
   const totalPages = Math.max(1, Math.ceil(data.total / PAGE_SIZE))
   const periodText = filter.months
     ? `최근 ${PERIODS.find((period) => period.months === filter.months).label}`
@@ -94,7 +95,7 @@ function UserOrdersPage({ onNavigate }) {
     return () => {
       isMounted = false
     }
-  }, [filter, page, onNavigate])
+  }, [filter, page, onNavigate, ordersVersion])
 
   // 직접 지정한 날짜를 확인한 뒤 첫 페이지부터 조회(서버도 같은 규칙으로 다시 검증)
   const searchRange = (event) => {
@@ -188,7 +189,7 @@ function UserOrdersPage({ onNavigate }) {
           ) : (
             <>
               <p className="orders-page__count">{periodText} 주문 <strong>{data.total}</strong>건</p>
-              <OrderList orders={data.orders} onNavigate={onNavigate} />
+              <OrderList orders={data.orders} onNavigate={onNavigate} onChanged={() => setOrdersVersion((version) => version + 1)} />
             </>
           )}
         </section>

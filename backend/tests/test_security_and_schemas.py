@@ -1072,8 +1072,9 @@ class ShippingRulesTests(unittest.TestCase):
         now = datetime(2026, 9, 30, 23, 0, tzinfo=timezone.utc)  # 한국 시간 2026-10-01
         self.assertEqual(asyncio.run(service.purge_expired_orders(now, commit=False)), 2)
         params = captured[0].compile().params
-        # 결제 완료 주문만, 고객 조회 가능 범위(5년 전 같은 날 0시)보다 이전 결제를 삭제
+        # 결제 완료는 결제 시각, 환불 완료는 환불 시각이 고객 조회 가능 범위(5년 전 같은 날 0시)보다 이전이면 삭제(환불 확인 중은 제외)
         self.assertIn("paid", params.values())
+        self.assertIn("refunded", params.values())
         self.assertIn(datetime(2021, 10, 1, tzinfo=KOREA_TIMEZONE), params.values())
 
     def test_order_period_starts_at_korean_midnight_months_ago(self):

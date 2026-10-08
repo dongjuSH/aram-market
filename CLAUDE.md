@@ -6,15 +6,29 @@
 
 사용자는 React와 FastAPI의 동작을 직접 이해하면서 구현하는 것이 목표다. 요청하지 않은 전체 코드 생성이나 대규모 구조 변경은 피하고, 기존 코드 기준으로 원인과 개념을 먼저 설명한 뒤 필요한 범위만 수정한다. 새로운 폴더·계층·라이브러리는 실제 필요가 생겼을 때 먼저 제안한다.
 
-## 지금 이어서 할 일 (2026-10-07 기준)
+## 지금 이어서 할 일 (2026-10-08 기준)
 
-운영 배포(2026-10-05)와 배포 후 후속 작업(2026-10-07)까지 끝났고, **2026-10-07 이후 이 프로젝트는 추가 개발 없이 현재 상태로 유지한다**(사용자 결정). 다시 작업할 때는 아래 '알려진 위험'(Oracle 유휴 VM 회수)과 `deploy/README.md`의 재배포 절차부터 확인한다. 작업 환경은 개인 PC(Windows 11, PowerShell·Git Bash)이며 서버 접속 키는 `~/.ssh/oracle_aram_market`(암호 있음)이다. 서버 명령은 사용자가 SSH 창에서 직접 실행한다.
+운영 배포(2026-10-05)와 배포 후 후속 작업(2026-10-07)까지 끝났고, 2026-10-08에 **주문 환불 기능(서버·화면·약관 v1.2)을 구현하고 Codex 교차 검수 4회(마지막 회차는 Codex 직접 수정 후 Claude 확인)까지 반영해 커밋·푸시했다**. 다음 순서: **운영 배포(서버 `git pull`·의존성 동기화·재시작 → 032 적용 → 프런트 `dist` 업로드) → 실제 URL에서 환불 시나리오 테스트 → `deploy/README.md` 상단 기록 갱신 → 재고 관리(새 채팅)**. 운영 반영 전에는 '알려진 위험'(Oracle 유휴 VM 회수)과 `deploy/README.md`의 재배포 절차를 확인한다. 작업 환경은 개인 PC(Windows 11, PowerShell·Git Bash)이며 서버 접속 키는 `~/.ssh/oracle_aram_market`(암호 있음)이다. 서버 명령은 사용자가 SSH 창에서 직접 실행한다. 사용자에게 명령을 안내할 때는 새 PowerShell 창 기준 절대 경로 이동부터 적는다.
 
 현재 상태:
 
-- 2026-10-07 작업은 모두 `main`에 커밋했다(`fcebfc6` 상품 카드 접근성, `69f6ee5` Sentry 소스맵·nginx 캐시, 이후 푸터·메일 안내 교체·프런트 패치 업데이트·문서). 원격 푸시와 운영 반영 여부는 `git log origin/main`과 `deploy/README.md` 상단 기록으로 확인한다.
-- 2026-10-07 완료: 상품 카드 이미지 `aria-hidden` 버튼 → 포커스 없는 `div`, Sentry 두 프로젝트 Localhost 필터(web은 브라우저 확장·구형 브라우저·크롤러 필터 포함), 로그인 실패 제한이 실제 접속자 IP 기준인지 확인(PC 429 후 휴대폰 데이터는 일반 실패), 프런트 소스맵 Sentry 업로드, nginx `index.html` no-cache·해시 자산 장기 캐시·없는 자산 404.
-- 같은 날 배포 사이트·전체 코드 검수 결과(푸터·메일 가상 사업자 정보 교체, 프런트 패치 업데이트)까지 반영했다. 남은 필수 작업은 없고, 기능 확장 후보는 '다음 작업 후보와 미구현 범위'와 '보류 목록'에 있다.
+- 2026-10-07까지의 작업은 모두 `main`에 커밋·푸시했다(마지막 `327bb6f`). 원격 푸시와 운영 반영 여부는 `git log origin/main`과 `deploy/README.md` 상단 기록으로 확인한다.
+- 2026-10-08 환불 작업: 031은 **사용자가 PC에서 실제 Supabase에 적용 완료**(2회 실행, `check_order_refunds.py` 종료 코드 0, 당시 주문 `paid` 8건). 공용 DB라 운영에도 이미 반영됐지만 허용값·컬럼 추가뿐이라 운영의 기존 코드와 호환된다. 032(약관 v1.2 동의 이력)는 **미적용**이며 운영 배포 날 적용한다(먼저 적용하면 운영 화면은 v1.1인데 이력만 v1.2가 됨).
+- 로컬에서 관리자 로그인이 503 `MFA_UNAVAILABLE`인 것은 정상이다: 운영 `AUTH_SECRET_KEY`로 암호화한 MFA 비밀값이 공용 DB에 있어 로컬 키로 풀 수 없다. **로컬에서 `setup_admin_mfa.py enroll`을 실행하면 운영 관리자 로그인이 막히므로 금지.** 관리자 기능 확인은 배포 후 실제 URL에서 하거나 테스트 동안만 백엔드 터미널에 운영 키를 환경변수로 넣는다(2026-10-08 사용자 결정: 실제 URL에서 테스트). 근본 해결은 '보류 목록'의 개발·운영 DB 분리다.
+
+### 다음 기능 개발 계획 (2026-10-07 결정, 환불 2026-10-08 구현)
+
+순서: **1. 환불(구현 완료, 아래 '주문 환불' 절) → 2. 재고 관리**. 재고 작업도 결제·동시성 변경이므로 '작업 원칙'의 검증 원칙 1~7을 따르고, 설계안·실패 시나리오 표·마이그레이션 계획을 사용자 승인 후 작은 단위로 구현한다. 다음 마이그레이션 번호는 033이다.
+
+재고 정책:
+
+- 상품별 재고 수량을 DB에 저장한다. 모든 상품(노출·비노출·소프트 삭제 포함, 2026-10-07 기준 30건) 초기 재고 100, 테스트용으로 **상품 id 16 '데일리 무향 립밤 4g'(노출 중, 9,900원)만 2**.
+- 재고 0이면 '품절' 표시와 담기·구매 차단, 남은 재고보다 많이 담거나 구매하려 하면 'N개 남음' 안내와 수량 제한. 서버(장바구니·주문 생성·결제 승인)에서도 재고를 확인한다.
+
+재고 설계 시 반영할 현재 코드 사실:
+
+- 주문 상태는 `pending`·`paid`·`failed`·`refunding`·`refunded`(031). 환불 완료 반영 지점은 `services/refunds.py`의 `_mark_refunded` 하나(직접 환불·승인·즉시 조회·보정 작업 모두 거침)이므로 환불 시 재고 복구는 여기에 둔다.
+- 재고 차감 시점은 토스 승인 **호출 직전**(결제창 인증 후 `/api/orders/confirm`)에 조건부 차감(`stock >= 수량`, 상품 id 순서로 잠가 교착 방지)하고, 승인이 확정 실패하거나 보정 작업이 미결제로 확정하면 복구하는 방식을 우선 검토한다(승인 뒤 차감하면 품절 시 '결제 후 자동 환불'이 필요해 고객 경험이 나쁨). 환불 시 재고 복구, 상품 행이 삭제돼 `order_items.product_id`가 NULL이면 복구 생략.
 
 새 PC에서 다시 시작할 때(대여 노트북 → 개인 PC 인계 때 쓴 절차):
 
@@ -78,6 +92,7 @@ Claude가 지킬 사용자 선호(이전 기억 파일에서 옮김):
 - 고객 장바구니(로그인 시 DB 저장), 찜 목록(`/wishlist`), 토스페이먼츠 테스트 결제(주문 생성·서버 승인·주문 내역)
 - 상품 후기(배송완료된 구매 고객만)·문의(로그인 고객, 비밀글, 관리자 답변)
 - 주문서(배송지 입력)·배송 상태(결제완료 → 상품준비중 → 배송중 → 배송완료, 관리자 변경)·마이 페이지 배송 현황
+- 주문 환불(2026-10-08, 운영 배포 전): 토스 결제 취소로 전액 환불, 고객 즉시 취소(결제완료)·취소 요청(상품준비중, 주문당 1회)·관리자 직접 환불·요청 승인/거절(거절 사유 필수), 환불 확인 중 보정 작업, 약관 v1.2
 - 고객 헤더: 상단 회원가입·로그인(로그인 시 닉네임·로그아웃), 우측 찜 목록·장바구니·마이 페이지 아이콘(컬리 방식)
 - 찜 목록 전용 페이지(`/wishlist`), 배송지 주소록(마이 페이지 관리·주문서 선택, 최대 10개), 마이 페이지 회원정보 수정·이메일 변경(메일 확인 후 반영), 상세 상단 개편(컬리·쿠팡형 정보 행)
 - 관리자 화면: 상품 관리·주문 관리·문의 관리(헤더에 세 메뉴를 항상 표시, 현재 화면 메뉴는 강조·클릭 불가, 상품 등록·수정 화면에서는 '상품 관리'가 강조되지만 목록으로 이동 가능). 주문 관리의 다음 단계 버튼 문구는 `config/delivery.js`의 `action`
@@ -94,19 +109,20 @@ Claude가 지킬 사용자 선호(이전 기억 파일에서 옮김):
 - `user_policy_consents`: 약관 종류·버전·동의 여부·시각 이력(기존 회원은 v1.0 이력 백필)
 - `products`: 총 30건(활성 29건, 삭제 1건)이며 소프트 삭제 상품도 보존
 - 마이그레이션 029로 `admin_accounts`에 2단계 인증 컬럼 4개 추가(적용 완료). 마이그레이션 017~026으로 추가된 테이블: `user_refresh_tokens`, `admin_refresh_tokens`, `rate_limit_events`, `cart_items`, `wishlist_items`, `orders`(배송 컬럼 포함), `order_items`, `product_reviews`, `product_inquiries`, `user_addresses` (모두 적용 완료, 검수 스크립트로 확인)
+- 마이그레이션 031(주문 환불 상태·취소 요청·환불 컬럼 15개·CHECK 5개·부분 인덱스 2개)은 2026-10-08 사용자가 실제 Supabase에 적용 완료(2회 실행, 확인 스크립트 종료 코드 0). 032(약관 v1.2 동의 이력)는 운영 배포 날 적용 예정.
 - 마이그레이션 030(주문의 실제 결제 승인 시도 시각 `orders.payment_attempted_at`과 인덱스)은 2026-10-03 실제 Supabase에 적용 완료(2회 실행 확인, 확인 스크립트 종료 코드 0). 당시 주문 7건은 모두 결제 완료라 시도 시각을 각자의 `paid_at`으로 채웠다.
 - 상품 대표·상세 이미지는 모두 새 Storage 경로로 이전 완료
 - `products.image_data`, 상품 관리자 ID, 감사 로그 관리자 ID 같은 중복 컬럼 제거 완료
 
-자동 검증 기준(2026-10-07 재실행):
+자동 검증 기준(2026-10-08 재실행):
 
-- 백엔드 단위 테스트 134개 통과(`tests/test_api_routes.py`가 앱 조립·인증 필요 경로·ID 범위·헬스 체크·검색어 이스케이프를 DB 없이 확인)
-- 프런트 Node 단위 테스트 6개 통과(`npm test`: Sentry 이벤트 민감정보 제거·정상 식별자 보존·같은 키 이름의 임의 데이터 정리, 결제 불확정 화면 상태)
+- 백엔드 단위 테스트 175개 통과(환불 `tests/test_order_refunds.py` 41개 포함, 2026-10-08 개발 PC에서 Codex 최종 수정 후 재실행)(`tests/test_api_routes.py`는 앱 조립·인증 필요 경로·ID 범위·헬스 체크·검색어 이스케이프를 DB 없이 확인)
+- 프런트 Node 단위 테스트 10개 통과(`npm test`: Sentry 이벤트 민감정보 제거·정상 식별자 보존·같은 키 이름의 임의 데이터 정리, 결제 불확정 화면 상태, 환불 상태 배지·가능한 동작 판정 `config/refund.test.js`)
 - Python `compileall` 통과
 - 프런트 `oxlint` 통과
 - Vite 프로덕션 빌드 통과
 - `ruff`(F·E9·B·ASYNC, 백엔드 전체), `vulture`, `pip-audit`, `uv pip check`, `npm audit`(개발 의존성 포함) 이상 없음
-- DB 검수 스크립트 15종 종료 코드 0(상품 30건, 관리자 MFA 등록·복구 코드 10개)
+- DB 검수 스크립트 15종 종료 코드 0(상품 30건, 관리자 MFA 등록·복구 코드 10개, 2026-10-07 기준) + `check_order_refunds.py` 종료 코드 0(2026-10-08)
 
 ## 작업 원칙
 
@@ -172,7 +188,7 @@ git ls-files | rg '(^|/)(\.env($|\.)|node_modules|dist|\.venv|__pycache__|.*\.py
 product-management/
 ├─ backend/
 │  ├─ main.py
-│  ├─ migrations/                 # 001~030 스키마·데이터 변경 이력
+│  ├─ migrations/                 # 001~032 스키마·데이터 변경 이력
 │  ├─ scripts/                    # 마이그레이션·검수·관리 스크립트
 │  ├─ tests/
 │  └─ src/backend/
@@ -296,7 +312,7 @@ npm run dev
 관리자 화면:
 
 - `${VITE_ADMIN_BASE_PATH}/inquiries?status=pending|answered&q=...&page=1`: 상품 문의 답변 관리(탭·검색어·페이지를 주소에 유지)
-- `${VITE_ADMIN_BASE_PATH}/orders`: 결제 완료 주문의 배송지 확인·배송 상태 변경
+- `${VITE_ADMIN_BASE_PATH}/orders`: 결제 완료 주문의 배송지 확인·배송 상태 변경, 환불·취소 요청 처리(탭: 전체·배송 4단계·취소 요청·환불)
 - `${VITE_ADMIN_BASE_PATH}/login`
 - `${VITE_ADMIN_BASE_PATH}/products`
 - `${VITE_ADMIN_BASE_PATH}/products/new`
@@ -333,6 +349,7 @@ npm run dev
 - 회원가입에서는 이름·휴대폰·주소를 받지 않는다(개인정보 최소 수집: 주문에 필요한 값은 주문서에서 필수로 받고, 인증하지 않는 휴대폰 번호를 가입 필수로 받을 이유가 없음). 휴대폰 번호 인증(문자)은 구현하지 않는다(휴대폰은 배송 연락용일 뿐이며 본인 확인은 이메일 인증으로 한다). 회원정보에도 이름·휴대폰을 두지 않는다(주소록과 중복되고, 닉네임만 바꿀 때도 필수 입력이 되는 문제가 있어 2026-10-01 제거).
 - 마이 페이지 회원정보 수정(`PUT /api/users/me/profile`): 닉네임만 수정한다(중복 불가 409 `NICKNAME_EXISTS`, 후기·문의 등 공개 표시명). 받는 분 이름·연락처·주소는 배송지 주소록에서 관리한다. 마케팅 수신 동의 스위치는 회원정보 카드 안에 있다. 이메일 변경은 현재 비밀번호를 확인한 뒤 새 이메일로 확인 링크(`user_email_change` 토큰, 새 이메일·`auth_version` 포함)를 보내고, 링크 확인(`POST /api/users/email-change/confirm`) 전까지 기존 이메일이 유지된다. 이미 가입된 이메일은 409 `EMAIL_EXISTS`, 발송은 메일 발송 제한(IP·대상 이메일)을 따른다.
 - 약관 v1.1(2026-10-01): 이용약관에 테스트 사이트 고지·가입/인증·잠금·탈퇴 유예·주문/결제(토스페이먼츠)·배송 단계·장바구니/찜·후기/문의 규칙, 개인정보 동의에 선택 항목(주소록)·주문 배송정보·후기/문의·자동 생성 정보(동의 이력·쿠키·HMAC 변환 IP)·항목별 보유기간(주문·결제·배송 기록 5년)·처리 위탁(토스페이먼츠·Supabase(서버 소재지 대한민국, 국외 이전 없음)·메일 발송)·쿠키·이용자 권리를 추가했다. 마케팅 동의는 v1.0 유지. 기존 활성 회원 4명(testuser01·02·04·05)은 마이그레이션 027로 v1.1 동의 이력을 자동 추가했다(탈퇴 유예 중인 testuser03 제외, 복구해도 v1.1 이력은 없음). 재동의 화면은 없다. 약관 보기 모달은 긴 본문을 `.modal-content` 안에서 스크롤한다.
+- 약관 v1.2(2026-10-08): 이용약관에 '주문 취소와 환불' 절(전액 환불만, 결제완료 즉시 취소, 상품준비중 취소 요청·승인/거절과 거절 사유 안내, 주문당 1회, 요청 처리 전 배송중 전환 없음, 배송중 이후 불가, 관리자 취소, 환불 확인 중 표시), 개인정보 동의에 취소·환불 사유 수집·이용 목적·5년 보관·토스페이먼츠 위탁 범위(결제 취소)를 추가했다. 마케팅은 v1.0 유지. 기존 활성 회원 이력은 032(027과 같은 방식, 재동의 화면 없음)로 추가하며 운영 배포 날 적용한다. 상품 상세 '취소·환불 안내'(`config/shop-policy.js`)도 같은 내용이다.
 - 회원가입은 `password_confirm` 일치 검증(프런트·서버 모두)과 `policy_versions`(화면이 동의한 약관 버전) 검증을 거친다. 약관 본문·버전은 `services/policies.py`가 관리하며 본문을 바꾸면 버전을 올린다.
 - 동의·철회 이력은 `user_policy_consents`에 행을 추가해 남긴다(가입 시 service/privacy/marketing, 마이페이지 마케팅 변경 시 marketing).
 - 가입 직후 이메일 인증 링크(`user_email_verify` 토큰, 24시간)를 보내며 인증 전에는 올바른 비밀번호여도 `EMAIL_NOT_VERIFIED`로 로그인할 수 없다. 재발송은 60초 간격이며 응답은 계정 존재 여부를 숨긴다.
@@ -408,11 +425,23 @@ npm run dev
 - 결제 금액 범위(2026-10-03 Codex 검수 반영): 상품 가격·주문 합계·결제 확인 금액·관리자 가격 입력을 모두 `core/validators.py`의 `MIN_CARD_PAYMENT_AMOUNT`(100원)~`MAX_ORDER_PAYMENT_AMOUNT`(2,147,483,647원)로 통일했다. 주문 합계가 범위를 벗어나면 결제창을 열기 전에 409 `ORDER_AMOUNT_NOT_SUPPORTED`. 금액 컬럼은 `BigInteger`다.
 - 금액·상품명은 클라이언트 값을 믿지 않는다. 금액 불일치는 주문을 `failed`로 바꾸고 거부한다. 같은 결제 승인 요청을 다시 보내도(새로고침) 이미 `paid`이고 `payment_key`가 같으면 같은 결과를 돌려준다.
 - 주문 테이블은 가격·상품명·이미지 스냅샷을 저장하고, 회원·상품이 삭제돼도 거래 기록이 남도록 `ON DELETE SET NULL`이다. 결제하지 않은 `pending`·`failed` 주문은 하루 뒤 정리 작업이 삭제한다. 주문 생성은 IP당 시간당 30회로 제한한다.
-- 고객 주문 조회 `GET /api/orders?months=&page=&page_size=`: 결제 완료 주문만 최신순, `months`는 3·6·12만 허용(라우터는 `int`로 받고 서비스가 검증해 그 외는 422 `INVALID_ORDER_PERIOD`; `Literal[3, 6, 12]`로 선언하면 쿼리 문자열 "3"이 거부되므로 쓰지 않는다, 한국 시간 기준 N개월 전 같은 날 0시부터, 생략 시 전체 기간), `page_size` 기본 5·최대 20, `from`·`to`(쿼리 이름, YYYY-MM-DD)는 둘 다 지정해야 하며 시작일 ≤ 종료일, 최근 5년(`ORDER_HISTORY_MONTHS=60`) 안, 미래 불가, `months`와 함께 쓸 수 없다(위반 시 422 `INVALID_ORDER_DATE_RANGE`·`INVALID_ORDER_PERIOD`, 검증은 `order_period_range`). 응답 `orders`·`total`·`page`. 마이 페이지는 `page_size=3`으로 최근 3건, 주문 내역 페이지는 기간·페이지 단위로 조회한다. 전자상거래법상 대금결제·재화 공급 기록은 5년 보관 대상이므로 결제 완료 주문은 5년간 보관하고 그 뒤 정리 작업이 삭제한다.
+- 고객 주문 조회 `GET /api/orders?months=&page=&page_size=`: 결제 완료·환불 확인 중·환불 완료 주문(`SETTLED_STATUSES`) 최신순, `months`는 3·6·12만 허용(라우터는 `int`로 받고 서비스가 검증해 그 외는 422 `INVALID_ORDER_PERIOD`; `Literal[3, 6, 12]`로 선언하면 쿼리 문자열 "3"이 거부되므로 쓰지 않는다, 한국 시간 기준 N개월 전 같은 날 0시부터, 생략 시 전체 기간), `page_size` 기본 5·최대 20, `from`·`to`(쿼리 이름, YYYY-MM-DD)는 둘 다 지정해야 하며 시작일 ≤ 종료일, 최근 5년(`ORDER_HISTORY_MONTHS=60`) 안, 미래 불가, `months`와 함께 쓸 수 없다(위반 시 422 `INVALID_ORDER_DATE_RANGE`·`INVALID_ORDER_PERIOD`, 검증은 `order_period_range`). 응답 `orders`·`total`·`page`. 마이 페이지는 `page_size=3`으로 최근 3건, 주문 내역 페이지는 기간·페이지 단위로 조회한다. 전자상거래법상 대금결제·재화 공급 기록은 5년 보관 대상이므로 결제 완료 주문은 5년간 보관하고 그 뒤 정리 작업이 삭제한다.
 - 배송: 결제 승인 시 `delivery_status=paid`(결제완료)이며 관리자가 주문 관리 화면(`GET /api/admin/orders`, `PUT /api/admin/orders/{order_number}/delivery-status`)에서 상품준비중 → 배송중 → 배송완료로 **한 단계씩만** 변경한다(건너뛰기·되돌리기 409 `INVALID_DELIVERY_TRANSITION`). 배송중·배송완료 시각을 기록하고 마이 페이지 주문 내역에 4단계 진행 표시와 배송지를 보여준다. 실제 택배사·송장 연동은 없다(포트폴리오용 더미 배송). 배송지 입력 기능 이전 주문은 배송지가 없다.
-- 보관기간: 결제 완료 주문은 5년 보관 후 매시간 정리 작업(`purge_expired_orders`)이 삭제한다(한국 시간 5년 전 같은 날 0시 이전 결제, 고객 날짜 지정 조회 하한과 같음, 주문 상품은 CASCADE).
+- 보관기간: 결제 완료·환불 완료 주문은 결제·배송·취소 요청/거절·환불 시도/완료 중 가장 최근 시각부터 5년 보관 후(환불 확인 중은 남김) 매시간 정리 작업(`purge_expired_orders`)이 삭제한다(한국 시간 5년 전 같은 날 0시 이전 결제, 고객 날짜 지정 조회 하한과 같음, 주문 상품은 CASCADE).
 - 같은 상품을 결제완료·상품준비중·배송중인 상태에서 다시 주문해도 막거나 안내하지 않는다(2026-10-02 결정: 재구매는 대부분 정상 구매이고 실수 중복 결제는 주문번호 멱등 처리로 이미 막힘. 필요해지면 주문서 상품 줄에 막지 않는 한 줄 안내로 추가).
-- 아직 없는 것: 환불·결제 취소 API, 재고 관리, 토스 웹훅(토스 대시보드 취소 등 외부 변경 동기화. 승인 누락 보정은 위 정리 작업이 대신함), 영수증. 실제 결제 전 이 항목과 전자상거래법상 거래기록 보관 정책을 설계한다.
+- 아직 없는 것: 재고 관리, 토스 웹훅(토스 대시보드에서 직접 취소한 건 등 외부 변경 동기화. 승인·환불 누락 보정은 정리 작업이 대신함), 영수증, 부분 환불·교환·반품.
+
+### 주문 환불(2026-10-08 구현, 031)
+
+- 상태: `orders.status`에 `refunding`(결제사 취소 요청을 보냈고 결과 확정 전)·`refunded` 추가. 고객 취소 요청은 별도 컬럼 `cancel_request_status`(`requested` → 관리자 승인 시 `approved`·거절 시 `rejected`, 주문당 1회). 환불 기록 컬럼: `refund_actor`(환불을 **시작한** 주체 `customer`·`admin`, 처리자 아님 — 요청 승인은 요청한 고객, 승인 여부는 `cancel_request_status=approved`), `refund_reason_code`·`refund_reason_detail`, `refund_attempt_count`(멱등 키 번호), `refund_attempted_at`, `refunded_at`(토스 `canceledAt`), `refund_transaction_key`, `refund_failure_message`, `refund_delivery_status`(환불 시점 배송 단계). 사유 코드는 `schemas/orders.py`(서버)·`config/refund.js`(화면)가 같은 목록을 가지며 '기타'는 직접 입력 필수(100자), 거절 사유 필수(200자).
+- API: 고객 `POST /api/orders/{order_number}/refund`(결제완료만, 상품준비중이 됐으면 409 `ORDER_STATUS_CHANGED`), `POST /api/orders/{order_number}/cancel-request`(상품준비중만, 거절된 주문은 409 `CANCEL_REQUEST_REJECTED`, 같은 요청 재전송은 200) — 둘이 IP당 시간당 20회 공유. 관리자 `POST /api/admin/orders/{order_number}/refund`(결제완료·상품준비중, 대기 요청은 승인으로 정리), `/cancel-request/approve`, `/cancel-request/reject`(본문 `reason`), 목록 `GET /api/admin/orders?view=cancel_requested|refunded`(배송 단계 필터는 `paid` 주문만). 배송중 이후 409 `ORDER_NOT_REFUNDABLE`, 이미 환불 중 409 `REFUND_IN_PROGRESS`, 이미 환불 완료면 200 현재 주문(멱등). 취소 요청 대기 중 배송중 전환은 409 `CANCEL_REQUEST_PENDING`. 주문 응답에 `cancel_request`·`refund` 객체 추가.
+- 처리 순서(`services/refunds.py`, 결제 승인과 같은 구조): ① 주문 행 `FOR UPDATE` → 상태 검증 → `refunding`·시도 횟수+1 커밋(이후 다른 환불·배송 변경은 상태 조건에서 걸림) ② 잠금 없이 `toss.cancel_payment`(`POST /v1/payments/{key}/cancel`, `cancelReason` "고객: 단순 변심" 형식 최대 200자, `cancelAmount`=결제 금액 명시, 멱등 키 `{주문번호}-refund-{시도}`, 시간 초과 30초) ③ 행을 다시 잠가 반영. 토스 멱등 키는 같은 키 재요청에 첫 응답을 그대로 주므로 불확정 뒤 같은 키 재시도는 무의미하다 → 조회로 확인하고, 되돌린 뒤 다시 환불할 때만 새 키를 쓴다. 전액·금액 고정이라 이미 취소된 결제는 토스가 거절해 이중 환불이 생기지 않는다.
+- 오류 처리(근거: docs.tosspayments.com `reference#결제-취소`, `reference/error-codes`, `reference/using-api/idempotency-key`, `resources/faq`): 취소 요청이 오류였거나 응답을 믿을 수 없으면 **항상 먼저 `get_payment`로 조회**한다(`_settle_refund_error`). `refund_matches`(CANCELED·주문번호·결제키·잔액 0·DONE 취소 합계=결제 금액)면 `refunded`. **최종 거절 응답**(`is_final_refund_rejection`: 공식 취소 오류표의 HTTP 상태 400·401·403이면서 **명시 허용 목록** `TOSS_REFUND_FINAL_REJECTION_CODES`의 코드일 때만. 일시 오류 `PROVIDER_ERROR`·`NOT_AVAILABLE_BANK`, 이미 취소·처리 중일 수 있는 `ALREADY_*`·`FORBIDDEN_CONSECUTIVE_REQUEST`·`IDEMPOTENT_REQUEST_PROCESSING`, 목록에 없는 신규 코드, 상태/코드 조합이 어긋난 응답, 404·409·429·5xx는 최종이 아님)이면서 조회 결과가 **취소 기록이 하나도 없는 승인 완료**(`payment_not_refunded`: DONE·잔액=결제 금액·`cancels`가 null 또는 빈 배열, 진행 중 취소 기록이 있어도 아님)일 때만 `paid`로 되돌리고(승인한 요청은 `requested`로) 400 `REFUND_FAILED`. 그 밖(조회 실패·5xx·처리 중·진행 중 취소 등)은 `refunding` 유지 503 `REFUND_CONFIRMATION_PENDING`. 토스 성공 후 로컬 커밋 실패뿐 아니라 확정 거절 뒤 `paid` 되돌리기 커밋 실패·다른 시도 선점도 503으로 응답한다. `NOT_CANCELABLE_PAYMENT`는 토스 FAQ상 이미 취소된 결제에서도 나므로 조회 없이 되돌리면 안 된다.
+- 보정(`main.py`의 `reconcile_unconfirmed_refunds`, 결제 보정 다음에 실행): 시도 10분(`REFUND_RECONCILE_AFTER`) 지난 `refunding`을 후보(`RefundCandidate`)로 읽고, 트랜잭션 밖에서 `check_refund_with_gateway`가 조회한 뒤 **취소 기록이 전혀 없으면 처음과 같은 멱등 키·본문으로 취소를 다시 보내** 처음 요청의 결과를 회수한다(같은 키는 첫 응답을 돌려주고, 처음 요청이 닿지 않았다면 이때 처리됨). 재전송이 최종 거절이면 **그 뒤에 한 번 더 조회**한다(`payment_after_resend`, 두 호출 사이 취소 대비, 조회 실패는 되돌리지 않음). 환불 시작 후 하루(`REFUND_MANUAL_REVIEW_AFTER`)가 지나면 **재전송을 멈추고 조회만** 한다(토스 멱등 키는 처음 사용일부터 15일만 유효). 주문별 짧은 잠금으로 반영(상태·결제키·시도 횟수가 바뀌었으면 건너뜀): 어느 조회·응답에서든 전액 취소 확인 → `refunded`, 재전송 최종 거절 + 거절 뒤 조회도 취소 기록 없음 → `paid`로 되돌림, 하루 지나 재전송 중단 → 유지+ERROR(수동 확인), 취소 없음 + 처리 중·5xx·조회 실패 → 유지(다음 주기), 부분·진행 중 취소·결제 없음·불일치 → 유지+ERROR. 환불 완료 시각·거래 키는 `latest_done_cancel`(완료 취소 중 `lastTransactionKey`가 가리키는 것, 없으면 `canceledAt`이 가장 늦은 것, `cancels` 배열 순서는 문서에 정해져 있지 않음)로 정한다(2026-10-08 Codex 재검수 P1 1건·P2 2건 반영). **시간 경과만으로 되돌리지 않는다**(2026-10-08 Codex P1: 10분 뒤 DONE 한 번으로 되돌리면 늦게 끝난 취소를 영구히 놓침, 처음의 '자동 되돌림' 결정을 대체).
+- 기존 코드 점검: `list_orders`·`admin_list`는 `SETTLED_STATUSES`, `admin_update_delivery`는 `paid` 잠금 유지+요청 대기 차단, 후기 자격(`reviews.py`)은 변경 없음(환불은 배송 전에만 되므로 환불 주문은 배송완료가 될 수 없음), `purge_unpaid_orders`는 `IN (pending, failed)` 명시, `purge_expired_orders`는 결제·배송·취소 요청/거절·환불 시도/완료 시각 중 **가장 최근 값**(`GREATEST`, NULL 무시) 기준 5년, 결제 시각 없는 `paid`·환불 시각 없는 `refunded`·`refunding`은 삭제 안 함(Codex 1·3회차: 오래된 주문에 최근 생긴 취소·환불·배송 기록이 일찍 삭제되던 문제), 결제 보정 `apply_payment_lookup`은 `pending`·`failed`가 아니면 건너뜀(환불 주문의 CANCELED를 미결제로 오판해 결제키를 지우던 경로 차단), `confirm_payment`는 환불 주문의 결제 결과 새로고침에 현재 주문을 반환.
+- 화면: 고객 주문 카드(`features/user-auth/order-history.jsx`의 `OrderList`, 마이 페이지·주문 내역 공용)에 상태 배지·안내(취소 요청 중·거절 사유·환불 확인 중·환불 완료 시각·사유)와 '주문 취소'·'취소 요청' 버튼, 처리 후 목록 다시 조회. 관리자 주문 관리에 취소 요청·환불 탭, '환불'·'취소 승인(환불)'·'취소 거절' 버튼, 요청 대기 중 '배송중으로 변경' 비활성. 사유 입력은 공용 `components/common/reason-modal.jsx`. 결제 결과 화면은 환불된 주문이면 '취소된 주문입니다'.
+- 롤백: 코드를 먼저 되돌린 뒤 `scripts/rollback_order_refunds.py`(환불·취소 요청 기록이 하나라도 있으면 중단).
+- 운영 확인: 일시 오류(`PROVIDER_ERROR` 등)나 계속되는 5xx로 하루가 지나도 확정하지 못한 `refunding` 주문은 배송 전환을 계속 막고 ERROR 로그를 남긴다. 읽기 전용 `scripts/inspect_stuck_refunds.py`가 하루 이상 주문과 토스 조회 판정(`full_refund_confirmed`·`not_refunded_done`·`payment_not_found`·`manual_review`)을 출력하며 결제키는 끝 6자리만 표시한다. 먼저 이 결과와 토스 대시보드를 대조하고, 새 멱등 키 재시도나 DB 상태 변경은 토스에 결과를 확인하기 전에는 하지 않는다. 관리자 화면의 수동 처리 기능과 환불 알림 메일은 없다.
 
 ## 단일 관리자 인증
 
@@ -500,6 +529,8 @@ $env:PYTHONPATH=(Resolve-Path .\src).Path
 - `014`: `products.image_data` 제거와 `image_path` 필수화
 - `015`: 고객 `marketing_consent` 추가, 실제 DB 적용 완료
 - `029`: `admin_accounts`에 2단계 인증 컬럼 4개 추가(컬럼 추가만, 재실행 안전, 기존 관리자는 미등록 상태), 2026-10-02 실제 DB 적용 완료(2회 실행 확인). 적용: `scripts/apply_admin_mfa.py`, 확인: `scripts/check_admin_mfa.py`(비밀값 미출력). `check_auth_schema.py`의 기대 컬럼도 함께 갱신
+- `031`: 주문 환불 — `ck_orders_status`에 `refunding`·`refunded` 추가, 취소 요청 6개·환불 9개 컬럼, CHECK 5개(취소 요청 상태·사유 코드·환불 주체·환불 사유 코드·시도 횟수), 부분 인덱스 2개(`refunding` 보정용, `requested` 탭용). 재실행 안전, 2026-10-08 실제 DB 적용 완료(사용자 실행 2회, 확인 종료 코드 0). 적용: `scripts/apply_order_refunds.py`, 확인: `scripts/check_order_refunds.py`(누락 시 종료 코드 1), 롤백: `scripts/rollback_order_refunds.py`
+- `032`: 약관 v1.2 시행에 맞춰 이메일 인증된 active 회원에게 service·privacy v1.2 동의 이력 추가(027과 같은 방식, 재실행 안전). **미적용 — 운영 배포 날 적용.** 적용: `scripts/apply_policy_v1_2_backfill.py`, 확인: `scripts/check_policy_v1_2_backfill.py`(누락 시 종료 코드 1)
 - `030`: `orders.payment_attempted_at`과 조회 인덱스 추가. 결제키가 있는 기존 주문은 결제 완료면 `paid_at`, 미확정이면 실제 시도 시각을 알 수 없어 마이그레이션 시각으로 백필(하루 유예가 그때부터 시작). 재실행 안전, 2026-10-03 실제 DB 적용 완료(2회 실행, 결제 완료 7건은 `paid_at`으로 채움). 확인 스크립트는 누락 시 종료 코드 1. 적용: `scripts/apply_order_payment_attempted_at.py`, 확인: `scripts/check_order_payment_attempted_at.py`
 - `028`: `users.name`·`phone` 제거(적용 전 값이 저장된 회원이 없음을 확인, 적용 스크립트가 값이 있으면 중단, 재실행 안전), 실제 DB 적용 완료. 적용: `scripts/apply_drop_user_profile_fields.py`, 확인: `scripts/check_drop_user_profile_fields.py`
 - `027`: 약관 v1.1 시행에 맞춰 이메일 인증된 active 회원에게 service·privacy v1.1 동의 이력 추가(재실행 안전, 실제 DB 적용 완료 4명×2건). 적용: `scripts/apply_policy_v1_1_backfill.py`, 확인: `scripts/check_policy_v1_1_backfill.py`
@@ -539,6 +570,9 @@ $env:PYTHONUTF8="1"   # Windows cp949에서 한글 출력·pip-audit 디코딩 �
 .\.venv\Scripts\python.exe scripts\check_admin_refresh_tokens.py
 .\.venv\Scripts\python.exe scripts\check_admin_mfa.py
 .\.venv\Scripts\python.exe scripts\check_order_payment_attempted_at.py
+.\.venv\Scripts\python.exe scripts\check_order_refunds.py
+.\.venv\Scripts\python.exe scripts\inspect_stuck_refunds.py --database-only   # 운영 점검용 읽기 전용, 필요할 때만
+.\.venv\Scripts\python.exe scripts\check_policy_v1_2_backfill.py   # 032 적용 후부터
 .\.venv\Scripts\python.exe scripts\check_rate_limit_and_cart.py
 .\.venv\Scripts\python.exe scripts\check_smtp.py
 # 정적 분석·의존성(uv의 uvx 사용, vulture 실행 파일은 Windows 앱 제어가 막아 python -m으로 실행)
@@ -605,8 +639,8 @@ npm audit --omit=dev
 
 | 항목 | 진행 조건 | 메모 |
 |---|---|---|
-| 개발·운영 DB 분리 | 실제 서비스로 전환할 때 | 이유·권장 사항은 '실제 상용화 시 DB 분리' 절 |
-| 문의·상품 검색 인덱스(`pg_trgm` GIN) | 문의·상품이 수만 건 이상으로 늘어 관리자 검색이 느려질 때 | Supabase에 `pg_trgm` 1.6 설치 가능(미설치), DB 로케일 `en_US.UTF-8`이라 한글도 대상. 3글자 미만 검색어는 효과가 작고, 관리자 문의 검색은 문의·상품·회원 3테이블 OR 조건이라 쿼리 구조 조정이 함께 필요할 수 있다. 진행 시 다음 빈 마이그레이션 번호(현재 031) + 적용·확인 스크립트 |
+| 개발·운영 DB 분리 | 실제 서비스로 전환할 때 | 이유·권장 사항은 '실제 상용화 시 DB 분리' 절. 2026-10-08 실제 사례: 로컬 키로 운영 MFA 비밀값을 풀 수 없어 로컬 관리자 로그인 불가, 로컬 마이그레이션이 곧 운영 적용. 사용자가 실무 흐름 경험을 원하면 환불 마무리 후 별도 작업(Supabase 개발 프로젝트 + 스키마 이전 + 시드)으로 진행 가능 |
+| 문의·상품 검색 인덱스(`pg_trgm` GIN) | 문의·상품이 수만 건 이상으로 늘어 관리자 검색이 느려질 때 | Supabase에 `pg_trgm` 1.6 설치 가능(미설치), DB 로케일 `en_US.UTF-8`이라 한글도 대상. 3글자 미만 검색어는 효과가 작고, 관리자 문의 검색은 문의·상품·회원 3테이블 OR 조건이라 쿼리 구조 조정이 함께 필요할 수 있다. 진행 시 다음 빈 마이그레이션 번호(현재 033) + 적용·확인 스크립트 |
 | `order_items.product_id` 인덱스 | 주문이 크게 늘어 후기 작성 자격 조회가 느려질 때 | |
 | 관리자 로그인 제한기 DB 전환 | 백엔드 인스턴스나 uvicorn 워커를 2개 이상으로 늘릴 때(Codex 검수 P2에서도 지적됨, 2026-10-02 사용자 결정으로 보류 유지) | 관리자 계정 수가 아니라 서버 프로세스 수가 기준이다. 관리자 계정만 늘고 인스턴스 1대·워커 1개를 유지하면 현재 메모리 제한기를 계속 쓸 수 있다. 다중 프로세스에서는 실패 횟수가 프로세스별로 나뉘고 재시작 시 초기화되므로 배포 확장 전에 단계적 제한(30초→1분→5분→1시간)을 DB로 옮긴다. 고객 제한은 이미 DB(`rate_limit_events`) 방식이다. |
 | 관리자 계정 분리(감사 로그 수행자 기록) | 실제 관리자가 2명 이상이 될 때 | 관리자별 계정·MFA·로그인 세션을 분리하고 상품 변경 등 감사 로그에 수행자 식별자를 다시 기록한다. 서버가 단일 프로세스라면 이 작업과 관리자 제한기 DB 전환은 별개다. |
@@ -622,7 +656,7 @@ npm audit --omit=dev
 - 고객 푸터와 메일 6종의 하단에 있던 실제 사업자처럼 보이는 가상 정보(재단법인명·고유번호·대표자·전화·이메일·주소)를 지우고 '포트폴리오용 테스트 사이트, 실제 판매·결제·배송 없음' 안내로 바꿨다(`components/products/catalog-footer.jsx`, `domain/users/templates/*.html`).
 - 프런트 패치 업데이트(`npm update`, `package.json` 범위 안에서 잠금 파일만 변경): vite 8.3.3, `@vitejs/plugin-react` 6.1.2, `@sentry/react` 11.5.0, Tiptap 3.31.4, oxlint 1.87.0. 이로써 전체 `npm audit`도 0건(`source-map-js` 1.2.2).
 
-- 결제는 토스페이먼츠 테스트 키로만 연동돼 있다. 환불·재고·웹훅이 없다.
+- 결제는 토스페이먼츠 테스트 키로만 연동돼 있다. 환불은 2026-10-08 구현(전액만), 재고·웹훅이 없다.
 - 후기 사진 첨부·도움돼요·신고·관리자 후기 삭제 기능이 없다.
 - 선택 개선(필요해지면): 주문 생성 시점의 재고 확인, 주소록 기반 배송지 별 기본 요청사항. 인덱스·제한기 등은 '보류 목록' 참고.
 - 관리자 2단계 인증(TOTP)은 구현됐다(2026-10-02). 관리자 계정을 여러 명이 쓰게 되면 계정 분리(감사 로그의 수행자 기록 복구)를 먼저 도입한다. 기기별 로그인 세션은 이미 독립적이다.

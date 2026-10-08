@@ -36,6 +36,7 @@ from backend.domain.orders.models.orders import Order, OrderItem  # noqa: F401 -
 from backend.domain.orders.routers.orders import admin_router as admin_order_router, router as order_router
 from backend.domain.orders.services import toss
 from backend.domain.orders.services.orders import OrderService
+from backend.domain.orders.services.refunds import OrderRefundService, check_refund_with_gateway
 from backend.domain.wishlists.models.wishlists import WishlistItem  # noqa: F401 - 찜 테이블 메타데이터 등록
 from backend.domain.wishlists.routers.wishlists import router as wishlist_router
 from backend.domain.carts.models.carts import CartItem  # noqa: F401 - 장바구니 테이블 메타데이터 등록
@@ -85,6 +86,7 @@ async def run_cleanup_once() -> None:
         await OrderService(session).purge_expired_orders(commit=False)
         await session.commit()  # 여기까지 짧은 트랜잭션(정리 잠금도 함께 해제)
     await reconcile_unconfirmed_payments()
+    await reconcile_unconfirmed_refunds()
 
 
 # 승인 결과가 저장되지 않은 주문을 결제사에 조회: 외부 호출 동안 DB 트랜잭션·연결을 쥐지 않고, 결과만 주문별 짧은 잠금으로 반영
@@ -100,6 +102,21 @@ async def reconcile_unconfirmed_payments() -> None:
             continue
         async with async_session() as session:
             await OrderService(session).apply_payment_lookup(order_id, payment_key, payment)
+
+
+# 환불 결과가 저장되지 않은 주문(환불 확인 중)을 결제사에 확인: 결제 보정과 같은 방식으로 외부 호출 동안 트랜잭션을 쥐지 않음
+# (조회 후 취소 기록이 없으면 처음과 같은 멱등 키로 다시 보내 처음 요청의 결과를 회수)
+async def reconcile_unconfirmed_refunds() -> None:
+    async with async_session() as session:
+        candidates = await OrderRefundService(session).refund_reconcile_candidates()
+    for candidate in candidates:
+        try:
+            check = await check_refund_with_gateway(candidate)
+        except Exception:
+            logger.warning("unconfirmed refund payment lookup failed order_id=%s", candidate.order_id, exc_info=True)
+            continue
+        async with async_session() as session:
+            await OrderRefundService(session).apply_refund_lookup(candidate, check)
 
 
 # 서버가 켜져 있는 동안 매시간 정리 작업 실행

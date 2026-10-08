@@ -1,6 +1,6 @@
 # Oracle Cloud 운영 배포 기록
 
-최종 갱신: 2026-10-07
+최종 갱신: 2026-10-08
 최초 운영 배포 및 검증: 2026-10-05
 
 운영 주소는 `https://aram-market.duckdns.org`이다. 이 문서는 실제 운영 서버에 적용한 구성, 배포 중 확인한 문제와 해결 방법, 이후 재배포 절차를 기록한다. 비밀번호·토큰·키·실제 환경변수 값은 기록하지 않는다.
@@ -173,6 +173,24 @@ sudo systemctl status aram-market --no-pager
 1GB 인스턴스에서는 재시작 직후 몇 초 동안 앱이 아직 떠 있지 않아 `/api/health`가 502일 수 있다(2026-10-07 `restart` 3초 뒤 502, 곧 200). 10초쯤 뒤 다시 확인하고, 계속 502이면 위 '재부팅 직후의 502' 확인 순서를 따른다.
 
 DB 마이그레이션이 포함된 배포는 해당 마이그레이션의 사전 확인·적용·검증 스크립트를 문서화된 순서대로 실행한 후 서비스를 확인한다.
+
+#### 환불 확인 중 주문 운영 점검
+
+환불을 시작한 지 하루가 지난 `refunding` 주문은 자동 재전송하지 않고 조회만 하며, 배송 전환도 계속 차단한다. Sentry의 `refund still unresolved after a day` 오류를 받으면 아래 읽기 전용 스크립트로 대상부터 확인한다. 이 스크립트는 DB나 토스 결제 상태를 변경하지 않으며 결제키도 끝 6자리만 출력한다.
+
+```bash
+cd /var/www/aram-market/backend
+PYTHONPATH=src .venv/bin/python scripts/inspect_stuck_refunds.py --database-only
+PYTHONPATH=src .venv/bin/python scripts/inspect_stuck_refunds.py
+```
+
+출력의 `gateway_result`는 다음처럼 해석한다.
+
+- `full_refund_confirmed`: 토스에서 주문 금액 전액 취소가 확인됨. 다음 보정 주기의 로컬 반영 여부를 확인한다.
+- `not_refunded_done`: 조회 시점에는 취소 기록이 없는 승인 완료 상태. 이전 취소 요청 결과를 토스 대시보드·기술지원으로 확인하기 전에는 새 멱등 키로 다시 취소하거나 주문을 `paid`로 변경하지 않는다.
+- `payment_not_found`, `manual_review`, `lookup_error`: 자동 판단하지 않고 토스 대시보드와 API 로그를 대조한다.
+
+DB 직접 변경은 마지막 수단이다. 변경 전 주문 행과 토스 조회 결과를 별도로 기록하고, 전액 취소가 확인된 경우에만 `refunded`, 취소가 처리되지 않았음이 토스에서 확정된 경우에만 `paid`를 검토한다. 애매한 상태는 `refunding`으로 유지한다.
 
 ### 3. 프런트엔드 갱신
 

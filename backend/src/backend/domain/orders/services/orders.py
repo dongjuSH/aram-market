@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, HTTPException, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.config import settings
@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 STATUS_PENDING = "pending"
 STATUS_PAID = "paid"
 STATUS_FAILED = "failed"
+UNPAID_STATUSES = (STATUS_PENDING, STATUS_FAILED)  # 결제가 확정되지 않은 주문(결제 보정·미결제 정리 대상)
+# 고객·관리자 주문 목록에 보이는 거래 기록(결제 완료, 환불 확인 중, 환불 완료)
+SETTLED_STATUSES = (STATUS_PAID, "refunding", "refunded")
 TOSS_UNPAID_STATUSES = {"ABORTED", "EXPIRED", "CANCELED"}  # 결제사 조회 결과 돈이 남아 있지 않은 상태(미결제·만료·전액 취소)
 TOSS_NOT_FINAL_STATUSES = {"READY", "IN_PROGRESS"}  # 아직 승인 전 단계(시간이 지나면 만료로 바뀌므로 다음 주기에 다시 확인)
 # 4xx여도 결제가 이미 승인됐거나 처리 중일 수 있어 실패로 확정하면 안 되는 토스 오류 코드
@@ -50,6 +53,10 @@ DELIVERY_FLOW = ("paid", "preparing", "shipping", "delivered")  # 결제완료 �
 ORDER_PERIOD_MONTHS = (3, 6, 12)  # 고객 주문 목록 조회 기간(개월)
 ORDER_HISTORY_MONTHS = 60  # 날짜 직접 지정으로 조회할 수 있는 최대 과거(5년, 전자상거래법 거래기록 보관기간)
 KOREA_TIMEZONE = ZoneInfo("Asia/Seoul")
+
+
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
 
 
 # 오늘(한국 시간)에서 N개월 전 같은 날 0시(그 달에 같은 날이 없으면 말일), 예: 5월 31일의 3개월 전은 2월 말일
@@ -231,6 +238,11 @@ class OrderService:
                     await self._rollback_payment_settlement(order.order_number)
                     raise self._payment_confirmation_pending_error() from error
             raise api_error(status.HTTP_409_CONFLICT, "ORDER_ALREADY_PAID", "이미 결제가 완료된 주문입니다.")
+        if order.status in SETTLED_STATUSES and order.payment_key == request.payment_key:
+            # 결제 후 환불된 주문의 결제 결과 화면을 새로고침한 경우: 다시 승인하지 않고 현재 주문을 그대로 보여 줌
+            payload = await self._order_payload(order)
+            await self.db.commit()
+            return payload
         if order.status != STATUS_PENDING:
             raise api_error(status.HTTP_409_CONFLICT, "ORDER_NOT_PAYABLE", "결제할 수 없는 주문입니다. 다시 주문해 주세요.")
         if order.payment_key and order.payment_key != request.payment_key:
@@ -369,6 +381,26 @@ class OrderService:
                 "delivery_status": order.delivery_status,
                 "shipped_at": order.shipped_at.isoformat() if order.shipped_at else None,
                 "delivered_at": order.delivered_at.isoformat() if order.delivered_at else None,
+                "cancel_request": {
+                    "status": order.cancel_request_status,
+                    "requested_at": _iso(order.cancel_requested_at),
+                    "reason_code": order.cancel_request_reason_code,
+                    "reason_detail": order.cancel_request_reason_detail,
+                    "rejected_at": _iso(order.cancel_rejected_at),
+                    "reject_reason": order.cancel_reject_reason,
+                }
+                if order.cancel_request_status
+                else None,
+                "refund": {
+                    "actor": order.refund_actor,
+                    "reason_code": order.refund_reason_code,
+                    "reason_detail": order.refund_reason_detail,
+                    "attempted_at": _iso(order.refund_attempted_at),
+                    "refunded_at": _iso(order.refunded_at),
+                    "failure_message": order.refund_failure_message,
+                }
+                if order.refund_attempt_count
+                else None,
                 "shipping": {
                     "recipient_name": order.recipient_name,
                     "recipient_phone": order.recipient_phone,
@@ -396,13 +428,25 @@ class OrderService:
     async def _order_payload(self, order: Order) -> dict:
         return (await self._order_payloads([order]))[0]
 
-    # 결제가 완료된 내 주문을 최신순으로 페이지 단위 반환(기간 버튼 또는 직접 지정한 날짜 안의 결제만)
+    # 관리자 화면용 직렬화(구매자 닉네임 포함, 탈퇴로 회원이 없으면 '탈퇴한 회원')
+    async def _admin_payloads(self, orders: list[Order]) -> list[dict]:
+        user_ids = {order.user_id for order in orders if order.user_id is not None}
+        nicknames = {}
+        if user_ids:
+            nicknames = dict((await self.db.execute(select(User.id, User.nickname).where(User.id.in_(user_ids)))).all())
+        payloads = await self._order_payloads(orders)
+        return [
+            {**payload, "buyer": nicknames.get(order.user_id) or "탈퇴한 회원"}
+            for payload, order in zip(payloads, orders, strict=True)
+        ]
+
+    # 결제가 완료된 내 주문(환불 확인 중·환불 완료 포함)을 최신순으로 페이지 단위 반환(기간 버튼 또는 직접 지정한 날짜 안의 결제만)
     async def list_orders(
         self, token: str, months: int | None, start_date: date | None, end_date: date | None, page: int, page_size: int
     ) -> dict:
         user = await self.user_service._get_user_from_access_token(token)
         lower, upper = order_period_range(months, start_date, end_date)
-        conditions = [Order.user_id == user.id, Order.status == STATUS_PAID]
+        conditions = [Order.user_id == user.id, Order.status.in_(SETTLED_STATUSES)]
         if lower is not None:
             conditions.append(Order.paid_at >= lower)
         if upper is not None:
@@ -419,26 +463,27 @@ class OrderService:
         ).scalars().all()
         return {"orders": await self._order_payloads(list(orders)), "total": total, "page": page}
 
-    # 관리자용 결제 완료 주문 목록(배송 상태 필터, 구매자 닉네임 포함)
-    async def admin_list(self, admin_token: str, delivery_status: str | None, page: int, page_size: int) -> dict:
+    # 관리자용 주문 목록(구매자 닉네임 포함). 전체는 결제 완료·환불 주문, 배송 단계 탭은 결제 완료 주문만,
+    # 취소 요청 탭은 대기 중인 요청(오래된 요청부터), 환불 탭은 환불 확인 중·완료 주문
+    async def admin_list(
+        self, admin_token: str, delivery_status: str | None, page: int, page_size: int, view: str | None = None
+    ) -> dict:
         await self.admin_service.get_authenticated_admin(admin_token)
-        conditions = [Order.status == STATUS_PAID]
-        if delivery_status in DELIVERY_FLOW:
-            conditions.append(Order.delivery_status == delivery_status)
+        conditions = [Order.status.in_(SETTLED_STATUSES)]
+        order_by = (Order.paid_at.desc(), Order.id.desc())
+        if view == "cancel_requested":
+            conditions = [Order.status == STATUS_PAID, Order.cancel_request_status == "requested"]
+            order_by = (Order.cancel_requested_at.asc(), Order.id.asc())
+        elif view == "refunded":
+            conditions = [Order.status.in_(("refunding", "refunded"))]
+            order_by = (Order.refund_attempted_at.desc(), Order.id.desc())
+        elif delivery_status in DELIVERY_FLOW:
+            conditions = [Order.status == STATUS_PAID, Order.delivery_status == delivery_status]
         total = (await self.db.execute(select(func.count()).select_from(Order).where(*conditions))).scalar_one()
-        rows = (
-            await self.db.execute(
-                select(Order, User.nickname)
-                .outerjoin(User, User.id == Order.user_id)
-                .where(*conditions)
-                .order_by(Order.paid_at.desc(), Order.id.desc())
-                .limit(page_size)
-                .offset((page - 1) * page_size)
-            )
-        ).all()
-        payloads = await self._order_payloads([order for order, _ in rows])
-        orders = [{**payload, "buyer": nickname or "탈퇴한 회원"} for payload, (_, nickname) in zip(payloads, rows, strict=True)]
-        return {"orders": orders, "total": total, "page": page}
+        orders = (
+            await self.db.execute(select(Order).where(*conditions).order_by(*order_by).limit(page_size).offset((page - 1) * page_size))
+        ).scalars().all()
+        return {"orders": await self._admin_payloads(list(orders)), "total": total, "page": page}
 
     # 배송 상태를 한 단계씩만 앞으로 변경(건너뛰기·되돌리기 불가)
     async def admin_update_delivery(self, admin_token: str, order_number: str, request: DeliveryStatusRequest) -> dict:
@@ -454,14 +499,21 @@ class OrderService:
                 "INVALID_DELIVERY_TRANSITION",
                 "배송 상태는 결제완료 → 상품준비중 → 배송중 → 배송완료 순서로 한 단계씩만 변경할 수 있습니다.",
             )
+        if request.status == "shipping" and order.cancel_request_status == "requested":
+            raise api_error(
+                status.HTTP_409_CONFLICT,
+                "CANCEL_REQUEST_PENDING",
+                "고객의 취소 요청을 먼저 승인하거나 거절해야 배송중으로 변경할 수 있습니다.",
+            )
         order.delivery_status = request.status
         now = datetime.now(timezone.utc)
         if request.status == "shipping":
             order.shipped_at = now
         if request.status == "delivered":
             order.delivered_at = now
+        payload = (await self._admin_payloads([order]))[0]
         await self.db.commit()
-        return await self._order_payload(order)
+        return payload
 
     # 결제사 확인이 필요한 주문(승인 요청 후 10분이 지났는데 결제키가 남은 pending·failed)의 번호와 결제키(짧은 조회만, 잠금 없음)
     async def reconcile_candidates(self, now: datetime | None = None) -> list[tuple[int, str]]:
@@ -469,7 +521,7 @@ class OrderService:
         rows = (
             await self.db.execute(
                 select(Order.id, Order.payment_key).where(
-                    Order.status.in_((STATUS_PENDING, STATUS_FAILED)),
+                    Order.status.in_(UNPAID_STATUSES),
                     Order.payment_key.is_not(None),
                     Order.payment_attempted_at.is_not(None),
                     Order.payment_attempted_at < cutoff,
@@ -482,7 +534,8 @@ class OrderService:
     # 승인 완료면 paid, 미결제·만료·전액 취소·결제 없음이면 failed로 두고 결제키를 지워 삭제 대상으로, 그 밖의 상태는 남겨 둠
     async def apply_payment_lookup(self, order_id: int, payment_key: str, payment: dict | None) -> None:
         order = (await self.db.execute(select(Order).where(Order.id == order_id).with_for_update())).scalar_one_or_none()
-        if order is None or order.status == STATUS_PAID or order.payment_key != payment_key:
+        # 결제 완료·환불 주문은 건드리지 않음(환불 주문의 결제사 상태 CANCELED를 미결제로 오판하지 않도록)
+        if order is None or order.status not in UNPAID_STATUSES or order.payment_key != payment_key:
             await self.db.commit()
             return
         payment_status = (payment or {}).get("status")
@@ -512,19 +565,38 @@ class OrderService:
     async def purge_unpaid_orders(self, commit: bool = True) -> int:
         cutoff = datetime.now(timezone.utc) - timedelta(days=1)
         result = await self.db.execute(
-            delete(Order).where(Order.status != STATUS_PAID, Order.created_at < cutoff, Order.payment_key.is_(None))
+            delete(Order).where(Order.status.in_(UNPAID_STATUSES), Order.created_at < cutoff, Order.payment_key.is_(None))
         )
         if commit:
             await self.db.commit()
         return result.rowcount or 0
 
-    # 거래기록 보관기간(전자상거래법 5년)이 지난 결제 완료 주문을 삭제(주문 상품은 CASCADE로 함께 삭제)
-    # 기준은 고객이 날짜 지정으로 조회할 수 있는 가장 이른 날(한국 시간 5년 전 같은 날 0시)과 같다
+    # 거래기록 보관기간(전자상거래법 5년)이 지난 결제 완료·환불 완료 주문을 삭제(주문 상품은 CASCADE로 함께 삭제)
+    # 기준은 결제·배송·취소 요청/거절·환불 시도/완료 중 가장 최근 시각(오래된 주문에 최근 생긴 취소·환불 기록이 일찍 지워지지 않도록,
+    # PostgreSQL GREATEST는 NULL을 무시). 결제 시각이 없는 결제 완료, 환불 시각이 없는 환불 완료, 환불 확인 중은 지우지 않는다
+    # 기준일은 고객이 날짜 지정으로 조회할 수 있는 가장 이른 날(한국 시간 5년 전 같은 날 0시)과 같다
     async def purge_expired_orders(self, now: datetime | None = None, commit: bool = True) -> int:
         cutoff = months_ago_start(ORDER_HISTORY_MONTHS, now)
-        result = await self.db.execute(delete(Order).where(Order.status == STATUS_PAID, Order.paid_at < cutoff))
+        last_activity = func.greatest(
+            Order.paid_at,
+            Order.shipped_at,
+            Order.delivered_at,
+            Order.cancel_requested_at,
+            Order.cancel_rejected_at,
+            Order.refund_attempted_at,
+            Order.refunded_at,
+        )
+        result = await self.db.execute(
+            delete(Order).where(
+                or_(
+                    and_(Order.status == STATUS_PAID, Order.paid_at.is_not(None)),
+                    and_(Order.status == "refunded", Order.refunded_at.is_not(None)),
+                ),
+                last_activity < cutoff,
+            )
+        )
         if commit:
             await self.db.commit()
         if result.rowcount:
-            logger.info("expired paid orders purged count=%s", result.rowcount)
+            logger.info("expired paid and refunded orders purged count=%s", result.rowcount)
         return result.rowcount or 0
