@@ -19,7 +19,7 @@
 
 새 PC에서 다시 시작할 때(대여 노트북 → 개인 PC 인계 때 쓴 절차):
 
-1. Git, Python 3.14, Node 24 설치 → `git clone https://github.com/dongjuSH/product-management.git`. 저장소 폴더 소유자가 다른 계정(예: Codex 샌드박스)이면 `git config --global --add safe.directory <경로>`.
+1. Git, Python 3.14, Node 24 설치 → `git clone https://github.com/dongjuSH/aram-market.git`. 저장소 폴더 소유자가 다른 계정(예: Codex 샌드박스)이면 `git config --global --add safe.directory <경로>`.
 2. `backend/.env`, `frontend/.env.local`은 Git·채팅·메신저로 옮기지 않는다(비밀번호 관리자 보안 메모나 USB). 다시 받을 수 있는 값: `DATABASE_URL`·Supabase 키(Supabase 대시보드), `SENTRY_DSN`·`VITE_SENTRY_DSN`(Sentry 프로젝트 `aram-market-api`·`aram-market-web`의 Client Keys), 토스 테스트 키(토스 개발자센터). `VITE_ADMIN_BASE_PATH`는 문서·커밋에 남기지 않는다.
 3. 백엔드: `uv venv --python 3.14 .venv` → `uv pip install --python .venv -r requirements.txt`(로컬 `fastapi dev`를 쓰려면 `fastapi[standard]` 추가, 없으면 `uvicorn main:app --reload --host 127.0.0.1`). 이 PC의 `.venv`는 uv로 만들어 pip가 없으므로 `pip check` 대신 `uv pip check --python .venv`.
 4. 프런트: `cd frontend` → `npm ci` → `npm run dev`.
@@ -175,7 +175,7 @@ git ls-files | rg '(^|/)(\.env($|\.)|node_modules|dist|\.venv|__pycache__|.*\.py
 ## 주요 구조
 
 ```text
-product-management/
+aram-market/
 ├─ backend/
 │  ├─ main.py
 │  ├─ migrations/                 # 001~033 스키마·데이터 변경 이력
