@@ -1854,8 +1854,11 @@ a:focus-visible {
 }
 
 /* 고객 카탈로그 레퍼런스 디자인 개편 */
+/* 내용이 짧은 화면(빈 찜 목록·장바구니 등)에서도 푸터가 화면 맨 아래에 붙도록 본문(main)이 남는 높이를 채움(계정 화면과 같은 방식) */
 .catalog-page {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
   padding: 0;
   color: #252927;
   background: #fff;
@@ -1865,6 +1868,10 @@ a:focus-visible {
   --catalog-interactive: #2a9760;
   --catalog-green-soft: #eaf8f2;
   --catalog-gold: #e5aa24;
+}
+
+.catalog-page > main {
+  flex: 1 0 auto;
 }
 
 .catalog-skip-link {
