@@ -98,3 +98,9 @@ export function getCatalogCategories() {
 export function getCatalogProduct(productId) {
   return request(`/api/products/${productId}`, { method: 'GET' })
 }
+
+// 주문서가 결제 전에 상품별 판매 여부·현재 재고를 다시 확인(최대 100개)
+export function getCatalogAvailability(productIds) {
+  const query = new URLSearchParams(productIds.map((id) => ['ids', String(id)]))
+  return request(`/api/products/availability?${query}`, { method: 'GET' })
+}

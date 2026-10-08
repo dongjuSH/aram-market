@@ -742,9 +742,15 @@ button {
 .product-table__col--visibility { width: 78px; }
 .product-table__col--order { width: 78px; }
 .product-table__col--category { width: 105px; }
-.product-table__col--name { width: 250px; }
-.product-table__col--code { width: 160px; }
+.product-table__col--name { width: 220px; }
+.product-table__col--code { width: 140px; }
 .product-table__col--price { width: 115px; }
+.product-table__col--stock { width: 72px; }
+
+.stock-badge--sold-out {
+  color: #c2410c;
+  font-weight: 800;
+}
 .product-table__col--date { width: 112px; }
 .product-table__col--manage { width: 76px; }
 
@@ -3451,6 +3457,57 @@ a:focus-visible {
   border-color: var(--catalog-green);
   color: var(--catalog-green);
   background: var(--catalog-green-soft);
+}
+
+/* 품절 상품: 이미지 위 배지, 흐린 이미지, 담기 비활성 */
+.product-card__media {
+  position: relative;
+}
+
+.product-card__sold-out {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: rgb(32 38 34 / 45%);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.product-card__add:disabled,
+.product-card__add:disabled:hover {
+  border-color: #e3e7e5;
+  color: #a3aaa6;
+  background: #f4f6f5;
+  cursor: not-allowed;
+}
+
+/* 재고 안내(장바구니·상세·주문서 공용): 남은 수량은 회색, 품절·초과는 빨간색 */
+.stock-note {
+  margin: 4px 0 0;
+  color: #6b736f;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.stock-note--error {
+  color: #c2410c;
+}
+
+.cart-item--unavailable .cart-item__image img {
+  opacity: 0.5;
+}
+
+.catalog-detail__cart:disabled,
+.catalog-detail__cart:disabled:hover,
+.catalog-detail__buy:disabled,
+.catalog-detail__buy:disabled:hover {
+  border-color: #d9dedb;
+  color: #a3aaa6;
+  background: #eef1ef;
+  cursor: not-allowed;
 }
 
 .product-card__info {

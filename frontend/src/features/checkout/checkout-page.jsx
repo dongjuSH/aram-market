@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from 'react'
 import { getAddresses } from '../../api/addresses.js'
+import { getCatalogAvailability } from '../../api/products.js'
 import AddressFields from '../../components/user/address-fields.jsx'
 import { EMPTY_ADDRESS, validateAddress } from '../../config/address.js'
 import CustomerAccountShell from '../../components/user/customer-account-shell.jsx'
 import { CART_PATH, CUSTOMER_PRODUCTS_PATH, getCustomerProductDetailPath } from '../../config/routes.js'
+import { stockProblem } from '../../config/stock.js'
 import { loadCheckoutDraft, saveCheckoutDraft, startCheckout } from './checkout.js'
 
 // 주소록 항목을 주문 배송지 형식으로 변환
@@ -34,6 +36,21 @@ function CheckoutPage({ onNavigate }) {
   const [memo, setMemo] = useState(() => draft?.memo ?? '')
   const [message, setMessage] = useState('')
   const [isPaying, setIsPaying] = useState(false)
+  const [availability, setAvailability] = useState({}) // 상품 id → { on_sale, stock }: 주문서를 연 시점·재고 부족 응답 기준 최신 재고
+
+  // 주문서를 열 때 판매 여부·재고를 다시 확인(장바구니에 담은 뒤 품절될 수 있음). 실패해도 서버가 주문 생성·승인에서 다시 확인
+  useEffect(() => {
+    if (!draft) return
+    let isMounted = true
+    getCatalogAvailability(draft.items.map((item) => item.id))
+      .then((result) => {
+        if (isMounted) setAvailability(Object.fromEntries(result.items.map((item) => [item.id, item])))
+      })
+      .catch(() => {})
+    return () => {
+      isMounted = false
+    }
+  }, [draft])
 
   // 주소록을 불러와 처음 선택을 정함: 이전 입력(결제 취소 후 복귀) → 기본 배송지 → 새 배송지 입력
   useEffect(() => {
@@ -80,6 +97,10 @@ function CheckoutPage({ onNavigate }) {
   }
 
   const totalPrice = draft.items.reduce((sum, item) => sum + item.price * item.quantity, 0)
+  const stockProblems = Object.fromEntries(
+    draft.items.map((item) => [item.id, availability[item.id] ? stockProblem({ ...item, ...availability[item.id], quantity: item.quantity }) : null]),
+  )
+  const hasStockProblem = Object.values(stockProblems).some(Boolean)
   const addresses = book?.addresses ?? []
   const selected = addresses.find((address) => address.id === selectedId)
   const isBookFull = book ? addresses.length >= book.max_addresses : false
@@ -131,7 +152,16 @@ function CheckoutPage({ onNavigate }) {
       const result = await startCheckout(draft.items, draft.fromCart, shipping)
       if (result.canceled) setMessage('결제를 취소했습니다. 배송지를 확인하고 다시 결제할 수 있어요.')
     } catch (error) {
-      setMessage(error.message)
+      const shortages = error.code === 'OUT_OF_STOCK' ? (error.data?.stock_shortages ?? []).filter((item) => item.product_id) : []
+      if (shortages.length) {
+        // 서버가 알려 준 남은 수량으로 상품 줄 안내를 갱신(결제창은 열리지 않음, 아래 재고 안내가 대신 표시됨)
+        setAvailability((current) => ({
+          ...current,
+          ...Object.fromEntries(shortages.map((item) => [item.product_id, { on_sale: true, stock: item.available }])),
+        }))
+      } else {
+        setMessage(error.message)
+      }
     } finally {
       setIsPaying(false)
     }
@@ -152,6 +182,7 @@ function CheckoutPage({ onNavigate }) {
                     <div>
                       <strong>{item.name}</strong>
                       <span>{item.price.toLocaleString('ko-KR')}원 · {item.quantity}개</span>
+                      {stockProblems[item.id] && <p className="stock-note stock-note--error">{stockProblems[item.id]}</p>}
                     </div>
                     <em>{(item.price * item.quantity).toLocaleString('ko-KR')}원</em>
                   </li>
@@ -230,10 +261,15 @@ function CheckoutPage({ onNavigate }) {
                 </label>
               )}
             </section>
+            {hasStockProblem && (
+              <p className="checkout-error" role="alert">
+                품절되었거나 재고가 부족한 상품이 있어 결제할 수 없어요. 이전으로 돌아가 수량을 줄이거나 상품을 빼 주세요.
+              </p>
+            )}
             {message && <p className="checkout-error" role="alert">{message}</p>}
             <div className="checkout-actions">
               <button type="button" onClick={() => onNavigate(draft.fromCart ? CART_PATH : getCustomerProductDetailPath(draft.items[0].id))}>이전으로</button>
-              <button className="is-primary" type="submit" disabled={isPaying || !book}>{isPaying ? '결제창을 여는 중...' : `${totalPrice.toLocaleString('ko-KR')}원 결제하기`}</button>
+              <button className="is-primary" type="submit" disabled={isPaying || !book || hasStockProblem}>{isPaying ? '결제창을 여는 중...' : `${totalPrice.toLocaleString('ko-KR')}원 결제하기`}</button>
             </div>
           </form>
 

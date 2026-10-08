@@ -184,6 +184,28 @@ class ProductService:
             related_items = await self._with_review_stats([self._catalog_list_item(item, category) for item, category in related_rows])
         return {"product": self._catalog_detail_item(product, category_name, related_items)}
 
+    # 주문서용 상품별 판매 여부와 현재 재고(요청한 번호 순서, 없거나 판매 종료면 on_sale=false·stock 0)
+    async def catalog_availability(self, product_ids: list[int]) -> dict:
+        rows = (
+            await self.db.execute(
+                select(Product.id, Product.stock)
+                .join(ProductCategory, Product.category_id == ProductCategory.id)
+                .where(
+                    Product.id.in_(product_ids),
+                    Product.status == "active",
+                    Product.visible.is_(True),
+                    ProductCategory.is_active.is_(True),
+                )
+            )
+        ).all()
+        stocks = {product_id: stock for product_id, stock in rows}
+        return {
+            "items": [
+                {"id": product_id, "on_sale": product_id in stocks, "stock": stocks.get(product_id, 0)}
+                for product_id in dict.fromkeys(product_ids)
+            ]
+        }
+
     # 등록·수정 화면에서 선택한 카테고리의 관련 상품 후보 반환
     async def related_candidates(self, category_id: int, excluded_id: int | None = None) -> dict:
         return {"items": await self._related_candidates(category_id, excluded_id)}
@@ -227,6 +249,7 @@ class ProductService:
             name=request.name,
             code=request.code,
             price=request.price,
+            stock=request.stock,
             image_path=stored_image.path,
             image_name=request.image_name,
             image_description=request.image_description,
@@ -313,6 +336,8 @@ class ProductService:
             removed_editor_paths = previous_editor_paths - product_storage.paths_from_html(product.detail_html)
             product.updated_at = korea_now()
             await self._replace_relations(product.id, request.related_product_ids)
+            if request.stock != request.stock_base:
+                before_snapshot["stock"] = await self._apply_stock_change(product, request.stock, request.stock_base)
             after_snapshot = self._audit_snapshot(product, request.related_product_ids)
             changes = self._audit_changes(before_snapshot, after_snapshot)
             if changes:
@@ -342,6 +367,20 @@ class ProductService:
         if request.editor_upload_session_id:
             await product_storage.delete_draft(request.editor_upload_session_id)
         return {"message": "상품이 수정되었습니다.", "product_id": product.id}
+
+    # 관리자가 재고를 바꾼 경우에만 상품 행을 잠가 화면이 불러온 값(stock_base)과 현재 값을 비교해 반영하고 이전 값을 반환
+    # (그사이 주문 차감·환불 복구로 바뀌었으면 덮어쓰지 않고 409 STOCK_CHANGED). 재고를 바꾸지 않은 수정은 재고 칸을 건드리지 않는다
+    async def _apply_stock_change(self, product: Product, stock: int, stock_base: int) -> int:
+        current = (await self.db.execute(select(Product.stock).where(Product.id == product.id).with_for_update())).scalar_one()
+        if current != stock_base:
+            raise api_error(
+                status.HTTP_409_CONFLICT,
+                "STOCK_CHANGED",
+                f"그사이 주문·환불로 재고가 {current:,}개로 바뀌었습니다. 현재 재고를 확인한 뒤 다시 저장해 주세요.",
+                current_stock=current,
+            )
+        product.stock = stock
+        return current
 
     # 고객 화면에서는 즉시 사라지되 DB·Storage 원본은 복구 가능하도록 소프트 삭제
     async def delete_product(self, product_id: int) -> dict:
@@ -697,6 +736,7 @@ class ProductService:
             "name": product.name,
             "code": product.code,
             "price": product.price,
+            "stock": product.stock,
             "created_at": korea_iso(product.created_at),
             "updated_at": korea_iso(product.updated_at),
             "deleted_at": korea_iso(product.deleted_at) if product.deleted_at else None,
@@ -714,6 +754,7 @@ class ProductService:
             "name": product.name,
             "code": product.code,
             "price": product.price,
+            "stock": product.stock,
             "image_url": product_storage.public_url(product.image_path),
             "image_name": product.image_name,
             "image_description": product.image_description or "",
@@ -747,6 +788,7 @@ class ProductService:
             "category": category_name,
             "name": product.name,
             "price": product.price,
+            "stock": product.stock,
             "image_url": product_storage.public_url(product.image_path),
             "image_description": product.image_description or "",
         }
@@ -770,6 +812,7 @@ class ProductService:
             "name": product.name,
             "code": product.code,
             "price": product.price,
+            "stock": product.stock,
             "image_path": product.image_path,
             "image_name": product.image_name,
             "image_description": product.image_description,

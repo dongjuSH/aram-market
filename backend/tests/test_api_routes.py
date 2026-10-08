@@ -81,6 +81,15 @@ class ApiRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 422)
         self.assertEqual(response.json()["code"], "VALIDATION_ERROR")
 
+    # 주문서 재고 확인 경로는 상품 상세 경로({product_id})보다 먼저 잡히고 번호 범위·개수를 검증
+    async def test_availability_query_is_validated(self):
+        many = "&".join(f"ids={number}" for number in range(1, 102))
+        for url in ("/api/products/availability", "/api/products/availability?ids=0", "/api/products/availability?ids=2147483648",
+                    f"/api/products/availability?{many}"):
+            response = await self.client.get(url)
+            self.assertEqual(response.status_code, 422, url)
+            self.assertEqual(response.json()["code"], "VALIDATION_ERROR")
+
     # 관리자 상품 목록의 잘못된 조회 조건이 NameError 대신 구조화된 오류가 되도록 함수를 직접 확인
     async def test_admin_product_list_rejects_invalid_filters(self):
         from fastapi import HTTPException

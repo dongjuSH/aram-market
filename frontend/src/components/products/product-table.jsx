@@ -52,6 +52,7 @@ function ProductTable({ products, page, pageSize, isLoading, status, restoringId
           <col className="product-table__col--name" />
           <col className="product-table__col--code" />
           <col className="product-table__col--price" />
+          <col className="product-table__col--stock" />
           <col className="product-table__col--date" />
           <col className="product-table__col--date" />
           <col className="product-table__col--manage" />
@@ -65,6 +66,7 @@ function ProductTable({ products, page, pageSize, isLoading, status, restoringId
             <th>상품명</th>
             <th>상품코드</th>
             <th>가격</th>
+            <th>재고</th>
             <th>등록일</th>
             <th>수정일</th>
             <th>관리</th>
@@ -80,6 +82,7 @@ function ProductTable({ products, page, pageSize, isLoading, status, restoringId
               <td className="product-name">{product.name}</td>
               <td>{product.code}</td>
               <td>{product.price.toLocaleString('ko-KR')}원</td>
+              <td>{product.stock > 0 ? product.stock.toLocaleString('ko-KR') : <span className="stock-badge--sold-out">품절</span>}</td>
               <DateTimeCell value={product.created_at} />
               <DateTimeCell value={product.updated_at} />
               <td>
@@ -99,10 +102,10 @@ function ProductTable({ products, page, pageSize, isLoading, status, restoringId
             </tr>
           ))}
           {isLoading && (
-            <tr><td className="product-table__message" colSpan="10"><span>상품을 불러오고 있습니다.</span></td></tr>
+            <tr><td className="product-table__message" colSpan="11"><span>상품을 불러오고 있습니다.</span></td></tr>
           )}
           {!isLoading && products.length === 0 && (
-            <tr><td className="product-table__message" colSpan="10"><span>{status === 'deleted' ? '삭제된 상품이 없습니다.' : '등록된 상품이 없습니다.'}</span></td></tr>
+            <tr><td className="product-table__message" colSpan="11"><span>{status === 'deleted' ? '삭제된 상품이 없습니다.' : '등록된 상품이 없습니다.'}</span></td></tr>
           )}
         </tbody>
       </table>

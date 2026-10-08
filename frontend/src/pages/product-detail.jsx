@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import WishlistLoginModal from '../components/common/wishlist-login-modal.jsx'
 import { saveCheckoutDraft } from '../features/checkout/checkout.js'
-import { addToCart, MAX_QUANTITY, toggleWishlist, useShopping } from '../features/cart/shopping-store.js'
+import { addToCart, toggleWishlist, useShopping } from '../features/cart/shopping-store.js'
 import { getStoredUser } from '../api/user-auth.js'
 import ProductCard from '../components/products/product-card.jsx'
 import ProductInquiries from '../features/product-feedback/product-inquiries.jsx'
@@ -14,6 +14,7 @@ import CatalogFooter from '../components/products/catalog-footer.jsx'
 import CatalogHeader from '../components/products/catalog-header.jsx'
 import { CHECKOUT_PATH, CUSTOMER_PRODUCT_DETAIL_PREFIX, getCustomerProductDetailPath, getLoginPath, getPageTitle } from '../config/routes.js'
 import { HeartIcon } from '../components/common/icons.jsx'
+import { isSoldOut, maxPurchasable, purchaseQuantity } from '../config/stock.js'
 
 const DETAIL_TABS = [
   { id: 'product-description', label: '상품설명' },
@@ -85,12 +86,15 @@ function ProductDetailPage({ onNavigate }) {
   const invalidProductId = !Number.isInteger(productId) || productId <= 0
   const [product, setProduct] = useState(null)
   const [error, setError] = useState(invalidProductId ? '올바르지 않은 상품 주소입니다.' : '')
-  const [quantity, setQuantity] = useState(1)
+  const [selectedQuantity, setQuantity] = useState(1)
   const [reviewSummary, setReviewSummary] = useState(null) // 후기 구역이 불러온 평균·개수(상단 별점과 탭에 사용)
   const [activeTab, setActiveTab] = useState(DETAIL_TABS[0].id)
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false) // 비로그인 찜하기 안내 모달
   const { wishlistItems } = useShopping()
   const isWished = wishlistItems.some((item) => item.id === productId)
+  const soldOut = isSoldOut(product)
+  const quantityLimit = product ? maxPurchasable(product) : 1
+  const quantity = product ? purchaseQuantity(selectedQuantity, product) : 1 // 품절이면 0, 재고가 줄었으면 남은 수량까지
 
   // 구매하기: 로그인 고객만 진행(비로그인은 로그인 후 이 화면으로 복귀), 이 상품만 주문서(배송지 입력)로 넘김
   function handleBuyNow() {
@@ -226,11 +230,18 @@ function ProductDetailPage({ onNavigate }) {
               <div>
                 <dt id="quantity-label">수량</dt>
                 <dd>
-                  <div className="catalog-quantity" role="group" aria-labelledby="quantity-label">
-                    <button type="button" aria-label="수량 줄이기" disabled={quantity <= 1} onClick={() => setQuantity((current) => Math.max(1, current - 1))}>−</button>
-                    <output aria-live="polite">{quantity}</output>
-                    <button type="button" aria-label="수량 늘리기" disabled={quantity >= MAX_QUANTITY} onClick={() => setQuantity((current) => Math.min(MAX_QUANTITY, current + 1))}>+</button>
-                  </div>
+                  {soldOut ? (
+                    <p className="stock-note stock-note--error">품절된 상품입니다.</p>
+                  ) : (
+                    <>
+                      <div className="catalog-quantity" role="group" aria-labelledby="quantity-label">
+                        <button type="button" aria-label="수량 줄이기" disabled={quantity <= 1} onClick={() => setQuantity(quantity - 1)}>−</button>
+                        <output aria-live="polite">{quantity}</output>
+                        <button type="button" aria-label="수량 늘리기" disabled={quantity >= quantityLimit} onClick={() => setQuantity(Math.min(quantityLimit, quantity + 1))}>+</button>
+                      </div>
+                      {product.stock > 0 && quantity >= product.stock && <p className="stock-note">{product.stock}개 남음</p>}
+                    </>
+                  )}
                 </dd>
               </div>
             </dl>
@@ -250,8 +261,8 @@ function ProductDetailPage({ onNavigate }) {
               >
                 <HeartIcon />
               </button>
-              <button className="catalog-detail__cart" type="button" onClick={() => addToCart(product, quantity)}>장바구니</button>
-              <button className="catalog-detail__buy" type="button" onClick={handleBuyNow}>구매하기</button>
+              <button className="catalog-detail__cart" type="button" disabled={soldOut} onClick={() => addToCart(product, quantity)}>장바구니</button>
+              <button className="catalog-detail__buy" type="button" disabled={soldOut} onClick={handleBuyNow}>{soldOut ? '품절' : '구매하기'}</button>
             </div>
           </div>
         </article>

@@ -29,6 +29,7 @@ class Order(Base):
             name="ck_orders_refund_reason_code",
         ),
         CheckConstraint("refund_attempt_count >= 0", name="ck_orders_refund_attempt_count"),
+        CheckConstraint("stock_status IS NULL OR stock_status IN ('reserved', 'released', 'shortage')", name="ck_orders_stock_status"),
         Index("ix_orders_user_created", "user_id", "created_at"),
         Index("ix_orders_refunding_attempted_at", "refund_attempted_at", postgresql_where=text("status = 'refunding'")),
         Index("ix_orders_cancel_requested", "cancel_requested_at", postgresql_where=text("cancel_request_status = 'requested'")),
@@ -89,6 +90,9 @@ class Order(Base):
     refund_transaction_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     refund_failure_message: Mapped[str | None] = mapped_column(String(300), nullable=True)  # 최근 환불 실패 안내
     refund_delivery_status: Mapped[str | None] = mapped_column(String(20), nullable=True)  # 환불 시작 시점의 배송 단계
+    # 재고 차감·복구 상태(033): NULL(차감 전·033 이전 주문), reserved(차감), released(복구), shortage(결제 확정 후 재고 부족)
+    # 주문 행 잠금 아래에서만 바꿔 같은 주문의 재고가 두 번 차감·복구되지 않게 한다
+    stock_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

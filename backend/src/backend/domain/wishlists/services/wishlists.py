@@ -45,6 +45,7 @@ class WishlistService:
                     "name": product.name,
                     "category": category_name,
                     "price": product.price,
+                    "stock": product.stock,
                     "image_url": product_storage.public_url(product.image_path),
                     "image_description": product.image_description or "",
                 }

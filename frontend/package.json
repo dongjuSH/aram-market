@@ -10,8 +10,8 @@
     "dev": "vite",
     "dev:frontend": "vite",
     "build": "vite build",
-    "lint": "oxlint",
-    "test": "node --test src/sentry-scrub.test.js src/features/checkout/payment-result-state.test.js src/config/refund.test.js",
+    "lint": "oxlint src",
+    "test": "node --test src/sentry-scrub.test.js src/features/checkout/payment-result-state.test.js src/config/refund.test.js src/config/stock.test.js",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -18,6 +18,7 @@ from backend.domain.orders.schemas.orders import (
 )
 from backend.domain.orders.services import toss
 from backend.domain.orders.services.orders import STATUS_PAID, OrderService
+from backend.domain.orders.services.stock import release_stock
 
 logger = logging.getLogger(__name__)
 
@@ -388,7 +389,7 @@ class OrderRefundService(OrderService):
                 await self.db.rollback()
                 raise self._refund_pending_error()
             if order.status in (STATUS_PAID, STATUS_REFUNDING):
-                self._mark_refunded(order, payment)
+                await self._mark_refunded(order, payment)
             payload = await self._order_payload(order)
             await self.db.commit()
             return payload
@@ -402,9 +403,9 @@ class OrderRefundService(OrderService):
             logger.error("confirmed refund could not be persisted order_id=%s", order_id, exc_info=True)
             raise self._refund_pending_error() from error
 
-    # 환불 완료 처리: 상태·취소 시각·취소 거래 키 기록
-    @staticmethod
-    def _mark_refunded(order: Order, payment: dict) -> None:
+    # 환불 완료 처리: 상태·취소 시각·취소 거래 키 기록과 재고 복구(환불 완료 반영의 유일한 지점, 같은 커밋에서 복구하므로
+    # 커밋이 실패하면 복구도 함께 취소되고 보정 작업이 다시 이곳을 거친다. 차감하지 않은 033 이전 주문·shortage는 복구하지 않음)
+    async def _mark_refunded(self, order: Order, payment: dict) -> None:
         if order.status == STATUS_PAID:
             logger.warning("refund confirmed after order was reverted to paid order=%s", order.order_number)
         latest = latest_done_cancel(payment)
@@ -414,6 +415,7 @@ class OrderRefundService(OrderService):
         order.refunded_at = _parse_time(latest.get("canceledAt")) or datetime.now(timezone.utc)
         if order.cancel_request_status == CANCEL_REQUESTED:
             order.cancel_request_status = CANCEL_APPROVED
+        await release_stock(self.db, order)
 
     # 확정 거절·미반영 확인 시 환불 확인 중 주문을 결제완료로 되돌림(같은 시도일 때만, 승인한 취소 요청은 다시 대기로)
     async def _revert_refund(self, order_id: int, attempt: int, message: str) -> bool:
@@ -493,7 +495,7 @@ class OrderRefundService(OrderService):
         matched = next((payment for payment in payments if refund_matches(order, payment)), None)
         resend_error = check.resend_error or {}
         if matched is not None:
-            self._mark_refunded(order, matched)
+            await self._mark_refunded(order, matched)
             logger.warning("unconfirmed refund recovered as refunded order=%s", order.order_number)
         elif (
             resend_error.get("code") == "REFUND_FAILED"

@@ -29,6 +29,8 @@ def product_payload(**overrides) -> dict:
         "name": "테스트 상품",
         "code": "TEST-001",
         "price": 10000,
+        "stock": 100,
+        "stock_base": 100,
         "image_data": VALID_IMAGE,
         "image_name": "test.png",
         "image_description": "테스트 이미지",
@@ -51,6 +53,21 @@ class ProductSchemaTests(unittest.TestCase):
         for price in (0, 99, 2_147_483_648):
             with self.subTest(price=price), self.assertRaises(ValidationError):
                 ProductCreateRequest(**product_payload(price=price))
+
+    def test_stock_is_required_and_limited(self):
+        self.assertEqual(ProductCreateRequest(**product_payload(stock=0)).stock, 0)
+        self.assertEqual(ProductCreateRequest(**product_payload(stock=1_000_000)).stock, 1_000_000)
+        for stock in (-1, 1_000_001):
+            with self.assertRaises(ValidationError):
+                ProductCreateRequest(**product_payload(stock=stock))
+        payload = product_payload()
+        payload.pop("stock")
+        with self.assertRaises(ValidationError):
+            ProductCreateRequest(**payload)
+        payload = product_payload(image_data=None)
+        payload.pop("stock_base")
+        with self.assertRaises(ValidationError):  # 수정은 불러온 재고(stock_base)가 있어야 동시 변경을 감지
+            ProductUpdateRequest(**payload)
 
     def test_rejects_duplicate_or_more_than_two_related_products(self):
         with self.assertRaises(ValidationError):

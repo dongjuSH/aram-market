@@ -1265,6 +1265,25 @@ class AccountSecurityHardeningTests(unittest.IsolatedAsyncioTestCase):
 
 # 결제 승인 누락 보정(A5)과 불확정 오류 처리: 결제키 선저장, 확정 거절만 실패, 불확정은 즉시 조회, 정리 작업은 주문별 반영
 class PaymentReconciliationTests(unittest.IsolatedAsyncioTestCase):
+    # 이 묶음은 결제 상태 전이만 확인하므로 재고 함수는 같은 상태 규칙의 가짜로 대체(실제 재고 쿼리는 test_product_stock.py)
+    def setUp(self):
+        from unittest.mock import patch
+
+        async def fake_reserve(_db, order):
+            order.stock_status = "reserved"
+            return []
+
+        async def fake_release(_db, order):
+            if order.stock_status != "reserved":
+                return False
+            order.stock_status = "released"
+            return True
+
+        for name, fake in (("reserve_stock", fake_reserve), ("release_stock", fake_release)):
+            patcher = patch(f"backend.domain.orders.services.orders.{name}", fake)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def make_order(self, **overrides):
         from backend.domain.orders.models.orders import Order
 

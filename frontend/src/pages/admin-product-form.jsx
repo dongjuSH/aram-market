@@ -15,6 +15,7 @@ import {
 import AdminHeader from '../components/products/admin-header.jsx'
 import ProductEditor from '../components/products/product-editor.jsx'
 import { ADMIN_LOGIN_PATH, ADMIN_PRODUCTS_PATH } from '../config/routes.js'
+import { MAX_PRODUCT_STOCK } from '../config/stock.js'
 
 
 const MIN_PRODUCT_PRICE = 100
@@ -27,6 +28,8 @@ const EMPTY_FORM = {
   name: '',
   code: '',
   price: '',
+  stock: '',
+  stockBase: null, // 수정 화면이 불러온 재고(그사이 주문·환불로 바뀐 재고를 덮어쓰지 않도록 서버가 비교)
   imageData: '',
   imageUrl: '',
   imageName: '',
@@ -146,6 +149,8 @@ function AdminProductFormPage({ mode, onNavigate }) {
             name: product.name,
             code: product.code,
             price: String(product.price),
+            stock: String(product.stock),
+            stockBase: product.stock,
             imageData: '',
             imageUrl: product.image_url,
             imageName: product.image_name,
@@ -228,6 +233,10 @@ function AdminProductFormPage({ mode, onNavigate }) {
     if (!Number.isInteger(price) || price < MIN_PRODUCT_PRICE || price > MAX_PRODUCT_PRICE) {
       throw new Error(`가격을 ${MIN_PRODUCT_PRICE.toLocaleString('ko-KR')}원 이상 ${MAX_PRODUCT_PRICE.toLocaleString('ko-KR')}원 이하의 정수로 입력해 주세요.`)
     }
+    const stock = Number(form.stock)
+    if (form.stock === '' || !Number.isInteger(stock) || stock < 0 || stock > MAX_PRODUCT_STOCK) {
+      throw new Error(`재고를 0개 이상 ${MAX_PRODUCT_STOCK.toLocaleString('ko-KR')}개 이하의 정수로 입력해 주세요.`)
+    }
     if (!form.imageData && !form.imageUrl) throw new Error('상품 이미지를 첨부해 주세요.')
     const relatedIds = form.relatedProductIds.filter(Boolean).map(Number)
     if (new Set(relatedIds).size !== relatedIds.length) throw new Error('같은 관련 상품을 중복 선택할 수 없습니다.')
@@ -238,6 +247,8 @@ function AdminProductFormPage({ mode, onNavigate }) {
       name: form.name.trim(),
       code: form.code.trim(),
       price,
+      stock,
+      ...(isEdit ? { stock_base: form.stockBase } : {}),
       image_data: form.imageData || null,
       image_name: form.imageName,
       image_description: form.imageDescription.trim() || null,
@@ -264,6 +275,10 @@ function AdminProductFormPage({ mode, onNavigate }) {
       hasDraftUploadsRef.current = false
       onNavigate(ADMIN_PRODUCTS_PATH)
     } catch (requestError) {
+      if (requestError.code === 'STOCK_CHANGED' && Number.isInteger(requestError.data?.current_stock)) {
+        // 현재 재고를 비교 기준으로 바꿔 둠: 안내를 확인하고 다시 저장하면 입력한 재고로 바뀜
+        setForm((current) => ({ ...current, stockBase: requestError.data.current_stock }))
+      }
       setError(requestError.message)
     } finally {
       setIsSubmitting(false)
@@ -357,6 +372,11 @@ function AdminProductFormPage({ mode, onNavigate }) {
           <label className="product-form-field">
             <span>가격 <b>*</b></span>
             <input type="number" min={MIN_PRODUCT_PRICE} max={MAX_PRODUCT_PRICE} step="1" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} placeholder="숫자만 입력 가능합니다." />
+          </label>
+
+          <label className="product-form-field">
+            <span>재고 <b>*</b></span>
+            <input type="number" min="0" max={MAX_PRODUCT_STOCK} step="1" value={form.stock} onChange={(event) => setForm({ ...form, stock: event.target.value })} placeholder="0이면 고객 화면에 품절로 표시됩니다." />
           </label>
 
           <div className="product-form-field">

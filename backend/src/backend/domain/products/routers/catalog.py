@@ -1,6 +1,9 @@
 # 고객용 공개 상품 목록·상세 HTTP 엔드포인트
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, Path, Query
+from pydantic import Field
 
 from backend.domain.products.services.products import ProductService
 from backend.core.validators import MAX_DB_ID
@@ -25,6 +28,15 @@ async def list_catalog_products(
     product_service: ProductService = Depends(ProductService),
 ):
     return await product_service.list_catalog_products(keyword, category_id, page, page_size)
+
+
+# 주문서가 결제 전에 상품별 판매 여부·현재 재고를 다시 확인(?ids=1&ids=2, 최대 100개, 판매 종료 상품은 on_sale=false)
+@router.get("/availability")
+async def get_catalog_availability(
+    ids: Annotated[list[Annotated[int, Field(gt=0, le=MAX_DB_ID)]], Query(min_length=1, max_length=100)],
+    product_service: ProductService = Depends(ProductService),
+):
+    return await product_service.catalog_availability(ids)
 
 
 # 고객 화면용 단일 노출 상품과 관련 상품 조회

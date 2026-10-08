@@ -6,7 +6,8 @@ import CatalogFooter from '../../components/products/catalog-footer.jsx'
 import CatalogHeader from '../../components/products/catalog-header.jsx'
 import { saveCheckoutDraft } from '../checkout/checkout.js'
 import { CART_PATH, CHECKOUT_PATH, CUSTOMER_PRODUCTS_PATH, getCustomerProductDetailPath, getLoginPath } from '../../config/routes.js'
-import { MAX_QUANTITY, removeFromCart, updateCartQuantity, useShopping } from './shopping-store.js'
+import { isSoldOut, maxPurchasable, stockProblem } from '../../config/stock.js'
+import { removeFromCart, updateCartQuantity, useShopping } from './shopping-store.js'
 
 // 선택 상품 기준 금액을 계산하는 장바구니 화면
 function CartPage({ onNavigate }) {
@@ -18,6 +19,7 @@ function CartPage({ onNavigate }) {
   const selectedItems = useMemo(() => items.filter((item) => !excludedIds.has(item.id)), [items, excludedIds])
   const totalPrice = selectedItems.reduce((sum, item) => sum + item.price * item.quantity, 0)
   const isAllSelected = items.length > 0 && selectedItems.length === items.length
+  const hasStockProblem = selectedItems.some((item) => stockProblem(item)) // 품절·재고 초과 상품이 선택돼 있으면 주문 불가
 
   function toggleItem(productId) {
     setExcludedIds((current) => {
@@ -87,8 +89,11 @@ function CartPage({ onNavigate }) {
               </div>
 
               <ul>
-                {items.map((item) => (
-                  <li key={item.id} className="cart-item">
+                {items.map((item) => {
+                  const problem = stockProblem(item)
+                  const limit = maxPurchasable(item)
+                  return (
+                  <li key={item.id} className={`cart-item${problem ? ' cart-item--unavailable' : ''}`}>
                     <label className="cart-check cart-check--item">
                       <input type="checkbox" checked={!excludedIds.has(item.id)} onChange={() => toggleItem(item.id)} aria-label={`${item.name} 선택`} />
                     </label>
@@ -99,18 +104,24 @@ function CartPage({ onNavigate }) {
                       <span>{item.category}</span>
                       <button type="button" onClick={() => onNavigate(getCustomerProductDetailPath(item.id))}>{item.name}</button>
                       <em>{item.price.toLocaleString('ko-KR')}원</em>
+                      {problem ? (
+                        <p className="stock-note stock-note--error">{problem}</p>
+                      ) : (
+                        item.stock > 0 && item.quantity >= item.stock && <p className="stock-note">{item.stock}개 남음</p>
+                      )}
                     </div>
                     <div className="catalog-quantity" role="group" aria-label={`${item.name} 수량`}>
                       <button type="button" aria-label="수량 줄이기" disabled={item.quantity <= 1} onClick={() => updateCartQuantity(item.id, item.quantity - 1)}>−</button>
                       <output>{item.quantity}</output>
-                      <button type="button" aria-label="수량 늘리기" disabled={item.quantity >= MAX_QUANTITY} onClick={() => updateCartQuantity(item.id, item.quantity + 1)}>+</button>
+                      <button type="button" aria-label="수량 늘리기" disabled={isSoldOut(item) || item.quantity >= limit} onClick={() => updateCartQuantity(item.id, item.quantity + 1)}>+</button>
                     </div>
                     <strong className="cart-item__total">{(item.price * item.quantity).toLocaleString('ko-KR')}원</strong>
                     <button className="cart-item__remove" type="button" aria-label={`${item.name} 삭제`} onClick={() => removeFromCart([item.id])}>
                       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
                     </button>
                   </li>
-                ))}
+                  )
+                })}
               </ul>
             </section>
 
@@ -124,7 +135,8 @@ function CartPage({ onNavigate }) {
                 <span>결제 예정 금액</span>
                 <strong>{totalPrice.toLocaleString('ko-KR')}<small>원</small></strong>
               </div>
-              <button className="cart-summary__order" type="button" disabled={!selectedItems.length} onClick={handleOrder}>
+              {hasStockProblem && <p className="stock-note stock-note--error">품절되었거나 재고보다 많이 담긴 상품의 수량을 줄이거나 선택을 해제해 주세요.</p>}
+              <button className="cart-summary__order" type="button" disabled={!selectedItems.length || hasStockProblem} onClick={handleOrder}>
                 {selectedItems.length ? `${selectedItems.length}개 상품 주문하기` : '상품을 선택해 주세요'}
               </button>
             </aside>

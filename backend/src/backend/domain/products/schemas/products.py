@@ -11,6 +11,7 @@ from backend.core.validators import MAX_DB_ID, MAX_ORDER_PAYMENT_AMOUNT, MIN_CAR
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif"}  # 화면에서 허용하는 이미지 MIME 형식
 IMAGE_DATA_PATTERN = re.compile(r"^data:([^;]+);base64,(.+)$", re.DOTALL)
+MAX_PRODUCT_STOCK = 1_000_000  # 관리자가 입력할 수 있는 재고 상한(환불 복구로는 넘을 수 있음)
 UPLOAD_SESSION_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 
 
@@ -38,6 +39,7 @@ class ProductWriteRequest(BaseModel):
     name: str = Field(min_length=1, max_length=50)
     code: str = Field(min_length=1, max_length=50)
     price: int = Field(ge=MIN_CARD_PAYMENT_AMOUNT, le=MAX_ORDER_PAYMENT_AMOUNT)
+    stock: int = Field(ge=0, le=MAX_PRODUCT_STOCK)
     image_data: str | None = None
     image_name: str = Field(min_length=1, max_length=255)
     image_description: str | None = Field(default=None, max_length=200)
@@ -94,9 +96,9 @@ class ProductCreateRequest(ProductWriteRequest):
         return self
 
 
-# 기존 상품 전체 필드 교체 스키마
+# 기존 상품 전체 필드 교체 스키마(stock_base: 수정 화면이 불러온 재고, 그사이 주문으로 바뀐 재고를 덮어쓰지 않기 위한 비교값)
 class ProductUpdateRequest(ProductWriteRequest):
-    pass
+    stock_base: int = Field(ge=0, le=2_147_483_647)
 
 
 # 에디터 본문 이미지의 Storage 업로드 입력

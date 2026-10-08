@@ -5,9 +5,9 @@ import { addCartItem, getCart, mergeCart, removeCartItems, setCartItemQuantity }
 import { getStoredUser, USER_AUTH_CHANGE_EVENT } from '../../api/user-auth.js'
 import { addWishlistItem, getWishlist, removeWishlistItem } from '../../api/wishlist.js'
 import { CART_PATH, WISHLIST_PATH } from '../../config/routes.js'
+import { MAX_QUANTITY, maxPurchasable, stockShortageMessage } from '../../config/stock.js'
 import { clearCheckoutDraft } from '../checkout/checkout.js'
 
-export const MAX_QUANTITY = 99
 
 let loggedInUserId = getStoredUser()?.id ?? null
 let state = {
@@ -65,6 +65,10 @@ async function syncWithAuth() {
   try {
     const cart = guestItems.length ? await mergeCart(guestItems) : await getCart()
     setState({ items: cart.items, wishlistItems: (await getWishlist()).items, isLoading: false })
+    if (cart.adjusted?.length) {
+      // 품절 상품은 빼고 재고보다 많은 수량은 남은 만큼만 합침(서버 병합 결과)
+      showToast('품절되었거나 재고가 부족한 상품은 남은 수량만큼만 장바구니에 담았습니다.', 'error', { label: '장바구니 보기', path: CART_PATH })
+    }
   } catch {
     setState({ isLoading: false })
   }
@@ -88,6 +92,11 @@ export async function addToCart(product, quantity = 1) {
     return
   }
   const existing = state.items.find((item) => item.id === product.id)
+  // 비로그인 장바구니는 상품 화면에서 받은 재고로 제한(최종 확인은 서버 주문 생성·결제 승인)
+  if ((existing?.quantity ?? 0) + quantity > maxPurchasable(product)) {
+    showToast(stockShortageMessage(product.name, product.stock ?? 0), 'error')
+    return
+  }
   const items = existing
     ? state.items.map((item) => (item.id === product.id ? { ...item, quantity: Math.min(MAX_QUANTITY, item.quantity + quantity) } : item))
     : [
@@ -99,6 +108,7 @@ export async function addToCart(product, quantity = 1) {
           price: product.price,
           image_url: product.image_url,
           image_description: product.image_description,
+          stock: product.stock,
           quantity: Math.min(MAX_QUANTITY, quantity),
         },
       ]
@@ -114,6 +124,11 @@ export async function updateCartQuantity(productId, quantity) {
     } catch (error) {
       showToast(error.message, 'error')
     }
+    return
+  }
+  const current = state.items.find((item) => item.id === productId)
+  if (current && nextQuantity > current.quantity && nextQuantity > maxPurchasable(current)) {
+    showToast(stockShortageMessage(current.name, current.stock ?? 0), 'error')
     return
   }
   setState({ items: state.items.map((item) => (item.id === productId ? { ...item, quantity: nextQuantity } : item)) })

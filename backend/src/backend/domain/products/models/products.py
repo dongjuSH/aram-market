@@ -38,6 +38,7 @@ class Product(Base):
         ),
         CheckConstraint("display_order >= 1", name="ck_products_display_order_positive"),
         CheckConstraint("price >= 0", name="ck_products_price_nonnegative"),
+        CheckConstraint("stock >= 0", name="ck_products_stock_nonnegative"),
         CheckConstraint("status IN ('active', 'deleted')", name="ck_products_status"),
     )
 
@@ -48,6 +49,8 @@ class Product(Base):
     name: Mapped[str] = mapped_column(String(50), nullable=False)
     code: Mapped[str] = mapped_column(String(50), nullable=False)
     price: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # 판매 가능 수량. 결제 승인 직전에 차감하고 미결제 확정·환불 완료 시 되돌림(033)
+    stock: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     image_path: Mapped[str] = mapped_column(String(500), nullable=False)
     image_name: Mapped[str] = mapped_column(String(255), nullable=False)
     image_description: Mapped[str | None] = mapped_column(String(200), nullable=True)

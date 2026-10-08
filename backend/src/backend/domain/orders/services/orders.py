@@ -19,7 +19,9 @@ from backend.domain.carts.models.carts import CartItem
 from backend.domain.orders.models.orders import Order, OrderItem
 from backend.domain.orders.schemas.orders import DeliveryStatusRequest, OrderConfirmRequest, OrderCreateRequest
 from backend.domain.orders.services import toss
+from backend.domain.orders.services.stock import STOCK_RESERVED, STOCK_SHORTAGE, release_stock, reserve_stock
 from backend.domain.products.models.products import Product, ProductCategory
+from backend.domain.products.services.availability import out_of_stock_error
 from backend.domain.products.services.storage import product_storage
 from backend.domain.users.models.users import User
 from backend.core.errors import api_error
@@ -175,6 +177,15 @@ class OrderService:
                 product_ids=unavailable,
             )
 
+        # 재고 확인만 하고 차감은 결제 승인 직전에 한다(결제창에서 이탈한 주문이 재고를 묶지 않도록)
+        shortages = [
+            {"product_id": product_id, "name": products[product_id].name, "available": products[product_id].stock}
+            for product_id, quantity in quantities.items()
+            if products[product_id].stock < quantity
+        ]
+        if shortages:
+            raise out_of_stock_error(shortages)
+
         ordered = [(products[product_id], quantity) for product_id, quantity in quantities.items()]
         total = sum(product.price * quantity for product, quantity in ordered)
         ensure_supported_order_amount(total)
@@ -249,15 +260,38 @@ class OrderService:
             raise api_error(status.HTTP_409_CONFLICT, "PAYMENT_KEY_MISMATCH", "이미 다른 결제로 승인 요청된 주문입니다.")
 
         if order.total_amount != request.amount:
+            if order.payment_key is not None:
+                # 같은 결제키로 이미 승인을 요청한 주문: 앞선 요청이 승인될 수 있으므로 실패 처리·재고 복구를 하지 않고
+                # pending·reserved 그대로 결과 확인 중으로 응답(결제사 결과는 정리 작업이 조회해 확정)
+                await self.db.commit()  # 주문 행 잠금 해제
+                raise self._payment_confirmation_pending_error()
+            # 승인 요청 전(결제키 없음)이라 재고도 차감하지 않은 상태
             order.status = STATUS_FAILED
             order.failure_message = "결제 금액이 주문 금액과 일치하지 않습니다."
             await self.db.commit()
             raise api_error(status.HTTP_400_BAD_REQUEST, "AMOUNT_MISMATCH", "결제 금액이 주문 금액과 일치하지 않아 결제를 취소했습니다.")
 
+        # 결제사 승인 호출 직전에 재고를 조건부 차감(상품 행을 id 순서로 잠가 동시 결제에도 초과 판매 없음).
+        # 재시도·동시 요청은 주문 행 잠금 아래에서 이미 reserved임을 보고 다시 차감하지 않는다.
+        # 모자라면 결제사를 호출하지 않으므로 결제 인증은 승인되지 않고 만료되며, 주문은 결제키 없이 failed로 남아 하루 뒤 정리된다.
+        # 단, 033 이전에 결제키가 저장된 주문은 앞선 승인 요청이 이미 승인됐을 수 있으므로 pending으로 두고 "결제 안 됨"이 아닌
+        # 결과 확인 중으로 응답한다(고객이 미결제로 오해해 다시 주문하면 중복 결제). 결과는 정리 작업의 결제사 조회가 확정
+        if order.stock_status is None:
+            shortages = await reserve_stock(self.db, order)
+            if shortages:
+                if order.payment_key is not None:
+                    await self.db.commit()  # 주문 행 잠금 해제(아무것도 바꾸지 않음)
+                    raise self._payment_confirmation_pending_error()
+                order.status = STATUS_FAILED
+                order.failure_message = "재고가 부족해 결제를 진행하지 않았습니다."
+                await self.db.commit()
+                raise out_of_stock_error(shortages)
+
         # 승인 응답을 받기 전에 끊겨도 정리 작업이 결제사에 조회할 수 있도록 결제키를 먼저 저장하고,
         # 결제사 응답(최대 15초)을 기다리는 동안 주문 행 잠금을 쥐고 있지 않도록 여기서 커밋(재시도여도 커밋)
         # 동시에 같은 승인 요청이 와도 결제사는 주문번호 멱등 키로 한 번만 승인한다
-        if order.payment_key is None:
+        first_attempt = order.payment_key is None  # 이 요청이 처음으로 결제키를 저장하는지(앞선 승인 요청이 없음)
+        if first_attempt:
             order.payment_key = request.payment_key
             order.payment_attempted_at = datetime.now(timezone.utc)
         elif order.payment_attempted_at is None:
@@ -270,12 +304,15 @@ class OrderService:
         except HTTPException as error:
             detail = error.detail if isinstance(error.detail, dict) else {}
             if detail.get("code") == "PAYMENT_NOT_CONFIGURED":
-                raise
+                # 이 요청이 처음 저장한 결제키라면 결제사 호출 전 실패가 확실하므로 결제키를 지우고 재고를 되돌린다.
+                if first_attempt:
+                    await self._revert_unsent_attempt(order.id, request.payment_key)
+                    raise
+                # 앞선 승인 요청이 있었다면 그 결과를 알 수 없으므로 실패로 안내하지 않고 보정 작업의 확인 대상으로 남긴다.
+                raise self._payment_confirmation_pending_error() from error
             if detail.get("code") == "PAYMENT_FAILED" and is_definitive_rejection(detail):
                 # 카드 거절 등 확정 실패만 failed(결제키는 남겨 정리 작업이 결제사에서 한 번 더 확인한 뒤 삭제)
-                order.status = STATUS_FAILED
-                order.failure_message = str(detail.get("message"))[:300]
-                await self.db.commit()
+                await self._mark_rejected(order.id, request.payment_key, str(detail.get("message"))[:300])
                 raise
             # 처리 중·이미 처리됨·5xx·연결 실패 등 결과를 알 수 없으면 실패로 확정하지 않고 바로 조회해 확인
             return await self._settle_uncertain_payment(order, request.payment_key)
@@ -289,6 +326,47 @@ class OrderService:
             return await self._settle_uncertain_payment(order, request.payment_key)
 
         return await self._finalize_confirmed_payment(order.id, request.payment_key, result)
+
+    # 확정 거절 반영: 주문 행을 다시 잠가 아직 pending이고 같은 결제키일 때만 failed로 바꾸고 차감한 재고를 같은 커밋에서 되돌림
+    # (승인 호출 동안 잠금을 풀었으므로 그사이 보정 작업이 먼저 처리했으면 건너뜀. 반영에 실패해도 결제사 거절은 확정이므로 거절 안내는
+    # 그대로 응답하고, 주문은 pending·reserved로 남아 보정 작업이 결제사 조회 후 미결제로 확정하며 재고를 되돌린다)
+    async def _mark_rejected(self, order_id: int, payment_key: str, message: str) -> None:
+        try:
+            order = (
+                await self.db.execute(select(Order).where(Order.id == order_id).with_for_update().execution_options(populate_existing=True))
+            ).scalar_one_or_none()
+            if order is not None and order.status == STATUS_PENDING and order.payment_key == payment_key:
+                order.status = STATUS_FAILED
+                order.failure_message = message
+                await release_stock(self.db, order)
+            await self.db.commit()
+        except Exception:
+            logger.error("payment rejection could not be persisted order_id=%s", order_id, exc_info=True)
+            try:
+                await self.db.rollback()
+            except Exception:
+                logger.error("payment rejection rollback failed order_id=%s", order_id, exc_info=True)
+
+    # 결제사에 보내지 못한 첫 승인 시도 되돌리기(결제 설정 누락): 주문 행을 다시 잠가 아직 pending·같은 결제키일 때만 failed로 바꾸고
+    # 결제키·시도 시각을 지워 하루 뒤 정리 대상으로 만들며 차감한 재고를 같은 커밋에서 되돌림(실패하면 ERROR 로그, 결제키가 남아 보정 대상)
+    async def _revert_unsent_attempt(self, order_id: int, payment_key: str) -> None:
+        try:
+            order = (
+                await self.db.execute(select(Order).where(Order.id == order_id).with_for_update().execution_options(populate_existing=True))
+            ).scalar_one_or_none()
+            if order is not None and order.status == STATUS_PENDING and order.payment_key == payment_key:
+                order.status = STATUS_FAILED
+                order.failure_message = "결제 설정이 완료되지 않아 결제를 진행하지 않았습니다."
+                order.payment_key = None
+                order.payment_attempted_at = None
+                await release_stock(self.db, order)
+            await self.db.commit()
+        except Exception:
+            logger.error("unsent payment attempt could not be reverted order_id=%s", order_id, exc_info=True)
+            try:
+                await self.db.rollback()
+            except Exception:
+                logger.error("unsent payment attempt rollback failed order_id=%s", order_id, exc_info=True)
 
     # 승인 결과를 알 수 없을 때 결제사에 바로 조회: 승인됐으면 완료 처리, 아니면 pending으로 두고 정리 작업이 다시 확인
     async def _settle_uncertain_payment(self, order: Order, payment_key: str) -> dict:
@@ -348,7 +426,18 @@ class OrderService:
         )
 
     # 결제 완료 처리: 상태·결제 수단·승인 시각 기록, 장바구니 주문이면 해당 상품을 장바구니에서 제거
+    # 재고를 차감하지 않은 채 결제가 확정된 경우(확정 거절로 되돌린 뒤 늦게 승인 확인, 033 이전에 결제키가 저장된 주문)는 여기서 차감하고,
+    # 모자라면 돈은 이미 받았으므로 결제 완료로 두되 shortage로 기록하고 ERROR 로그로 관리자 확인을 요청한다
     async def _mark_paid(self, order: Order, payment: dict) -> None:
+        if order.stock_status != STOCK_RESERVED:
+            shortages = await reserve_stock(self.db, order)
+            if shortages:
+                order.stock_status = STOCK_SHORTAGE
+                logger.error(
+                    "paid order could not reserve stock; needs manual review order=%s products=%s",
+                    order.order_number,
+                    [shortage["product_id"] for shortage in shortages],
+                )
         order.status = STATUS_PAID
         order.failure_message = None
         order.payment_method = str(payment.get("method") or "")[:40] or None
@@ -546,6 +635,7 @@ class OrderService:
             order.status = STATUS_FAILED
             order.failure_message = f"결제사 확인 결과 미결제({payment_status})"
             order.payment_key = None  # 돈이 남아 있지 않음을 확인했으므로 일반 미결제 주문처럼 하루 뒤 삭제
+            await release_stock(self.db, order)
         elif payment is None:
             attempted_at = order.payment_attempted_at
             if attempted_at is not None and attempted_at.tzinfo is None:
@@ -554,6 +644,7 @@ class OrderService:
                 order.status = STATUS_FAILED
                 order.failure_message = "결제사 확인 결과 미결제(NOT_FOUND)"
                 order.payment_key = None
+                await release_stock(self.db, order)
             else:
                 # 승인 직후 조회에는 아직 결제가 보이지 않을 수 있으므로 결제키를 보존해 다음 주기에 다시 확인
                 logger.warning("unconfirmed order not found yet; keeping payment key order=%s", order.order_number)
@@ -562,10 +653,16 @@ class OrderService:
         await self.db.commit()
 
     # 결제하지 않고 하루가 지난 주문을 정리(결제키가 남은 주문은 결제사에서 미결제를 확인해 결제키를 지운 뒤에만 삭제)
+    # 재고를 차감한 채(reserved) 남은 주문은 재고를 들고 사라지지 않도록 지우지 않는다(정상 흐름에서는 결제키 없이 reserved가 될 수 없음)
     async def purge_unpaid_orders(self, commit: bool = True) -> int:
         cutoff = datetime.now(timezone.utc) - timedelta(days=1)
         result = await self.db.execute(
-            delete(Order).where(Order.status.in_(UNPAID_STATUSES), Order.created_at < cutoff, Order.payment_key.is_(None))
+            delete(Order).where(
+                Order.status.in_(UNPAID_STATUSES),
+                Order.created_at < cutoff,
+                Order.payment_key.is_(None),
+                or_(Order.stock_status.is_(None), Order.stock_status != STOCK_RESERVED),
+            )
         )
         if commit:
             await self.db.commit()
